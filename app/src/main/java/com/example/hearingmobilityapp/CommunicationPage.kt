@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.rememberPermissionState
+import androidx.compose.ui.tooling.preview.Preview
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -169,4 +170,9 @@ fun CommunicationPage() {
             }
         }
     }
+}
+@Preview(showBackground = true)
+@Composable
+fun CommunicationPreview() {
+    CommunicationPage()
 }
