@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1069992839675",
+    "project_id": "hearingapp-763c1",
+    "storage_bucket": "hearingapp-763c1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1069992839675:android:bfbde1e43572136784235e",
+        "android_client_info": {
+          "package_name": "com.example.hearingmobilityapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1069992839675-j1vg53opuqe5fcta9los1717q5opmcsk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAfULpL2MATJwjiZY9g8oxIxo_5cN1CUZI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1069992839675-j1vg53opuqe5fcta9los1717q5opmcsk.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

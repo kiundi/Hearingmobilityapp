@@ -19,6 +19,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -28,9 +29,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.rememberPermissionState
@@ -48,7 +49,7 @@ fun CommunicationPageWithPermission() {
         }
 
         is PermissionStatus.Denied -> {
-            // If permission was denied but we can ask again, or it's the first time
+            // If permission was denied or it's the first time, request it
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -59,7 +60,7 @@ fun CommunicationPageWithPermission() {
                     Text("Request Permission")
                 }
             }
-            // Optionally, you can automatically launch the permission request:
+            // Automatically launch the permission request if no rationale should be shown
             if (!(recordAudioPermissionState.status as PermissionStatus.Denied).shouldShowRationale) {
                 SideEffect {
                     recordAudioPermissionState.launchPermissionRequest()
@@ -68,10 +69,13 @@ fun CommunicationPageWithPermission() {
         }
     }
 }
+
 @Composable
-fun CommunicationPage() {
-    // State for the typed or transcribed message
-    var message by remember { mutableStateOf("") }
+fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
+    // Observe transcribed message from ViewModel
+    val message by viewModel.message.observeAsState("")
+    var typedMessage by remember { mutableStateOf("") }
+    var isListening by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -85,7 +89,6 @@ fun CommunicationPage() {
                 .align(Alignment.TopCenter),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Left icon + label (Menu / Saved Messages)
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
                     painter = painterResource(id = R.drawable.menu_icon),
@@ -98,7 +101,6 @@ fun CommunicationPage() {
                     color = Color.Gray
                 )
             }
-            // Right icon + label (Star / Favourites)
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
                     painter = painterResource(id = R.drawable.star_icon),
@@ -113,36 +115,34 @@ fun CommunicationPage() {
             }
         }
 
-        // Center: Large text area
+        // Center: Large text area for the transcribed message
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp)
-                .padding(top = 50.dp, bottom = 100.dp), // Keeps offset from top & bottom
-            contentAlignment = Alignment.Center // Centers everything inside the Box
+                .padding(top = 50.dp, bottom = 100.dp),
+            contentAlignment = Alignment.Center
         ) {
             Text(
                 text = message.ifEmpty { "Message appears here" },
                 color = if (message.isEmpty()) Color.LightGray else Color.Black,
                 fontSize = 50.sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(), // Ensures text doesn't shrink weirdly
+                modifier = Modifier.fillMaxWidth(),
                 maxLines = 3,
             )
         }
 
-
-        // Bottom Row: TextField + Microphone
+        // Bottom Row: TextField + Microphone button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // TextField
             TextField(
-                value = message,
-                onValueChange = { message = it },
+                value = typedMessage,
+                onValueChange = { typedMessage = it },
                 modifier = Modifier
                     .weight(1f)
                     .padding(end = 8.dp),
@@ -151,15 +151,18 @@ fun CommunicationPage() {
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
                     onDone = {
-                        // The message is updated automatically via onValueChange
-                        // You can handle 'Done' action here if needed
+                        // Handle Done action if needed
                     }
                 )
             )
 
-            // Microphone Icon
             IconButton(onClick = {
-                // TODO: Trigger audio recording -> transcribe -> update 'message'
+                if (!isListening) {
+                    viewModel.startListening()
+                } else {
+                    viewModel.stopListening()
+                }
+                isListening = !isListening
             }) {
                 Icon(
                     painter = painterResource(id = R.drawable.microphone_icon),
