@@ -55,15 +55,7 @@ fun MainScreen() {
             composable(Screen.Communication.route) {
                 CommunicationPage()
             }
-            composable(Screen.Communication.route) {
-                ComplaintScreen()
-            }
-            composable(Screen.Communication.route) {
-                TripDetailsScreen()
-            }
-            composable(Screen.Communication.route) {
-                EmergencyContactsScreen()
-            }
+
 
 
 
