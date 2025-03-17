@@ -20,6 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.app.ui.screens.NavigationPage
 import com.example.hearingmobilityapp.ui.theme.HearingmobilityappTheme
 
 class MainActivity : ComponentActivity() {
@@ -54,6 +55,19 @@ fun MainScreen() {
             composable(Screen.Communication.route) {
                 CommunicationPage()
             }
+            composable(Screen.Communication.route) {
+                ComplaintScreen()
+            }
+            composable(Screen.Communication.route) {
+                TripDetailsScreen()
+            }
+            composable(Screen.Communication.route) {
+                EmergencyContactsScreen()
+            }
+
+
+
+
             // Add other pages here (Report, Account) similarly
         }
     }
