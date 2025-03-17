@@ -26,16 +26,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.rememberPermissionState
-import androidx.compose.ui.tooling.preview.Preview
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -73,9 +74,11 @@ fun CommunicationPageWithPermission() {
 @Composable
 fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
     // Observe transcribed message from ViewModel
-    val message by viewModel.message.observeAsState("")
+    val transcribedMessage by viewModel.message.observeAsState("")
     var typedMessage by remember { mutableStateOf("") }
+    var displayedMessage by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
 
     Box(
         modifier = Modifier
@@ -124,9 +127,9 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = message.ifEmpty { "Message appears here" },
-                color = if (message.isEmpty()) Color.LightGray else Color.Black,
-                fontSize = 50.sp,
+                text = if (displayedMessage.isNotEmpty()) displayedMessage else transcribedMessage.ifEmpty { "Message appears here" },
+                color = if (displayedMessage.isNotEmpty() || transcribedMessage.isNotEmpty()) Color.Black else Color.LightGray,
+                fontSize = if (displayedMessage.isNotEmpty()) 30.sp else 50.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 3,
@@ -142,7 +145,15 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
         ) {
             TextField(
                 value = typedMessage,
-                onValueChange = { typedMessage = it },
+                onValueChange = {
+                    typedMessage = it
+                    // Update displayed message in real-time as you type
+                    if (it.isNotEmpty()) {
+                        displayedMessage = it
+                    } else {
+                        displayedMessage = ""
+                    }
+                },
                 modifier = Modifier
                     .weight(1f)
                     .padding(end = 8.dp),
@@ -151,7 +162,12 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
                     onDone = {
-                        // Handle Done action if needed
+                        // Handle Done action: clear text field, update displayed message, and hide keyboard
+                        if (typedMessage.isNotEmpty()) {
+                            displayedMessage = typedMessage
+                            typedMessage = ""
+                        }
+                        focusManager.clearFocus()
                     }
                 )
             )
@@ -174,6 +190,7 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
         }
     }
 }
+
 @Preview(showBackground = true)
 @Composable
 fun CommunicationPreview() {
