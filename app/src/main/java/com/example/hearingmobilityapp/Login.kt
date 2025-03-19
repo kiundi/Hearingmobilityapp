@@ -1,11 +1,28 @@
 package com.example.hearingmobilityapp
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.*
-import androidx.compose.runtime.*
+import androidx.compose.material.Button
+import androidx.compose.material.ButtonDefaults
+import androidx.compose.material.Icon
+import androidx.compose.material.OutlinedButton
+import androidx.compose.material.OutlinedTextField
+import androidx.compose.material.Scaffold
+import androidx.compose.material.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -18,12 +35,17 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.hearingmobilityapp.R
+import androidx.navigation.NavHostController
 
 @Composable
-fun LoginScreen(navController: NavController, onLogin: (String, String) -> Unit, onGoogleSignIn: () -> Unit) {
+fun LoginScreen(
+    navController: NavHostController,
+    onLogin: (String, String, (String) -> Unit) -> Unit, // Updated onLogin callback
+    onGoogleSignIn: () -> Unit
+) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") } // State for error message
 
     Scaffold { contentPadding ->
         Column(
@@ -72,9 +94,24 @@ fun LoginScreen(navController: NavController, onLogin: (String, String) -> Unit,
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Display Error Message (Inserted here)
+            if (errorMessage.isNotEmpty()) {
+                Text(
+                    text = errorMessage,
+                    color = Color.Red,
+                    fontSize = 12.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Login Button
             Button(
-                onClick = { onLogin(email, password) },
+                onClick = {
+                    onLogin(email, password) { message ->
+                        errorMessage = message
+                        Log.e("LoginScreen", "Login failed: $message")
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFF0057FF))
             ) {
@@ -112,10 +149,10 @@ fun LoginScreen(navController: NavController, onLogin: (String, String) -> Unit,
 @Composable
 fun LoginScreenPreview() {
     val context: Context = LocalContext.current
-    val navController = NavController(context)
+    val navController = NavController(context) as NavHostController
     LoginScreen(
         navController = navController,
-        onLogin = { _, _ -> },
+        onLogin = { _, _, _ -> }, // Updated preview
         onGoogleSignIn = {}
     )
 }

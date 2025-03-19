@@ -1,16 +1,32 @@
 package com.example.hearingmobilityapp
 
 import android.content.Context
-import androidx.compose.foundation.Image
+import android.util.Log
 import androidx.compose.foundation.clickable
-import androidx.navigation.NavController
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.*
-import androidx.compose.runtime.*
+import androidx.compose.material.Button
+import androidx.compose.material.ButtonDefaults
+import androidx.compose.material.Icon
+import androidx.compose.material.OutlinedButton
+import androidx.compose.material.OutlinedTextField
+import androidx.compose.material.Scaffold
+import androidx.compose.material.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -18,15 +34,20 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
-import com.example.hearingmobilityapp.R
+import androidx.navigation.NavController
+import androidx.navigation.NavHostController
 
 @Composable
-fun SignupScreen(navController: NavController, onGoogleSignIn: () -> Unit, onCreateAccount: (String, String, String, String) -> Unit) {
+fun SignupScreen(
+    navController: NavHostController,
+    onGoogleSignIn: () -> Unit,
+    onCreateAccount: (String, String, String, String, (String) -> Unit) -> Unit // Updated onCreateAccount callback
+) {
     var fullName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") } // State for error message
 
     Scaffold { contentPadding ->
         Column(
@@ -74,7 +95,7 @@ fun SignupScreen(navController: NavController, onGoogleSignIn: () -> Unit, onCre
             Spacer(modifier = Modifier.height(12.dp))
 
             // Phone Input
-            OutlinedTextField(
+            /* OutlinedTextField(
                 value = phone,
                 onValueChange = { phone = it },
                 label = { Text("Phone Number") },
@@ -82,7 +103,7 @@ fun SignupScreen(navController: NavController, onGoogleSignIn: () -> Unit, onCre
                 keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Phone),
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(12.dp)) */
 
             // Password Input
             OutlinedTextField(
@@ -96,9 +117,24 @@ fun SignupScreen(navController: NavController, onGoogleSignIn: () -> Unit, onCre
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Display Error Message (Inserted here)
+            if (errorMessage.isNotEmpty()) {
+                Text(
+                    text = errorMessage,
+                    color = Color.Red,
+                    fontSize = 12.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Create Account Button
             Button(
-                onClick = { onCreateAccount(fullName, email, phone, password) },
+                onClick = {
+                    onCreateAccount(fullName, email, phone, password) { message ->
+                        errorMessage = message
+                        Log.e("SignupScreen", "Sign-up failed: $message")
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFF0057FF))
             ) {
@@ -136,10 +172,10 @@ fun SignupScreen(navController: NavController, onGoogleSignIn: () -> Unit, onCre
 @Composable
 fun SignupScreenPreview() {
     val context: Context = LocalContext.current
-    val navController = NavController(context)
+    val navController = NavController(context) as NavHostController
     SignupScreen(
         navController = navController,
         onGoogleSignIn = {},
-        onCreateAccount = { _, _, _, _ -> }
+        onCreateAccount = { _, _, _, _, _ -> } // Updated preview
     )
 }

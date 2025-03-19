@@ -1,94 +1,121 @@
 package com.example.hearingmobilityapp
 
-import android.Manifest
-import android.app.Application
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Bundle
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import android.util.Log
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
-class CommunicationViewModel(application: Application) : AndroidViewModel(application) {
+data class SavedMessage(val id: String, val text: String)
 
+class CommunicationViewModel : ViewModel() {
     private val _message = MutableLiveData<String>()
     val message: LiveData<String> = _message
 
-    private var speechRecognizer: SpeechRecognizer? = null
-    private var isListening = false
+    private val _isListening = MutableLiveData<Boolean>()
+    val isListening: LiveData<Boolean> = _isListening
+
+    private val _savedMessages = MutableStateFlow<List<SavedMessage>>(emptyList())
+    val savedMessages: StateFlow<List<SavedMessage>> = _savedMessages
+
+    private val firestore = FirebaseFirestore.getInstance()
+    private val auth = FirebaseAuth.getInstance()
+    private var savedMessagesListener: ListenerRegistration? = null
 
     init {
-        _message.value = ""
+        fetchSavedMessages()
+    }
+
+    fun updateMessage(newMessage: String) {
+        _message.value = newMessage
     }
 
     fun startListening() {
-        if (isListening) return
-
-        if (ContextCompat.checkSelfPermission(
-                getApplication(),
-                Manifest.permission.RECORD_AUDIO
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            Log.e("CommunicationViewModel", "Audio permission not granted")
-            return
+        // Implement your speech-to-text logic here and update _message.value
+        _isListening.value = true
+        // For now, let's simulate an update after a delay
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(2000)
+            _message.value = "This is a transcribed message." // Replace with actual transcription
+            _isListening.value = false
         }
-
-        isListening = true
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(getApplication()).apply {
-            setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {}
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onError(error: Int) {
-                    Log.e("SpeechRecognizer", "Error: $error")
-                    isListening = false
-                }
-                override fun onResults(results: Bundle?) {
-                    val data = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    if (!data.isNullOrEmpty()) {
-                        _message.postValue(data[0])
-                    }
-                    isListening = false
-                }
-                override fun onPartialResults(partialResults: Bundle?) {
-                    val data = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    if (!data.isNullOrEmpty()) {
-                        _message.postValue(data[0])
-                    }
-                }
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
-        }
-
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-            )
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-        }
-        speechRecognizer?.startListening(intent)
     }
 
     fun stopListening() {
-        if (!isListening) return
+        // Implement logic to stop speech-to-text
+        _isListening.value = false
+    }
 
-        speechRecognizer?.stopListening()
-        speechRecognizer?.destroy()
-        speechRecognizer = null
-        isListening = false
+    private fun getCurrentUserId(): String? {
+        return auth.currentUser?.uid
+    }
+
+    private fun getSavedMessagesCollection() =
+        firestore.collection("users").document(getCurrentUserId() ?: "").collection("savedMessages")
+
+    fun saveMessage(message: String) {
+        getCurrentUserId()?.let { userId ->
+            viewModelScope.launch {
+                try {
+                    getSavedMessagesCollection().add(hashMapOf("text" to message)).await()
+                    // fetchSavedMessages() // Listener should handle updates
+                } catch (e: Exception) {
+                    // Handle error
+                    println("Error saving message: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun removeSavedMessage(message: String) {
+        getCurrentUserId()?.let { userId ->
+            viewModelScope.launch {
+                try {
+                    val querySnapshot = getSavedMessagesCollection()
+                        .whereEqualTo("text", message)
+                        .get()
+                        .await()
+
+                    for (document in querySnapshot.documents) {
+                        document.reference.delete().await()
+                    }
+                    // fetchSavedMessages() // Listener should handle updates
+                } catch (e: Exception) {
+                    // Handle error
+                    println("Error removing message: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun fetchSavedMessages() {
+        getCurrentUserId()?.let { userId ->
+            savedMessagesListener?.remove() // Remove previous listener
+
+            savedMessagesListener = getSavedMessagesCollection()
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        // Handle error
+                        println("Listen failed: $error")
+                        return@addSnapshotListener
+                    }
+
+                    val messages = snapshot?.documents?.map { document ->
+                        SavedMessage(document.id, document.getString("text") ?: "")
+                    } ?: emptyList()
+                    _savedMessages.value = messages
+                }
+        }
     }
 
     override fun onCleared() {
         super.onCleared()
-        speechRecognizer?.destroy()
-        speechRecognizer = null
+        savedMessagesListener?.remove() // Remove listener when ViewModel is cleared
     }
 }

@@ -17,7 +17,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -45,12 +47,10 @@ fun CommunicationPageWithPermission() {
 
     when (recordAudioPermissionState.status) {
         PermissionStatus.Granted -> {
-            // Permission is granted, show your communication UI
             CommunicationPage()
         }
 
         is PermissionStatus.Denied -> {
-            // If permission was denied or it's the first time, request it
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -61,7 +61,6 @@ fun CommunicationPageWithPermission() {
                     Text("Request Permission")
                 }
             }
-            // Automatically launch the permission request if no rationale should be shown
             if (!(recordAudioPermissionState.status as PermissionStatus.Denied).shouldShowRationale) {
                 SideEffect {
                     recordAudioPermissionState.launchPermissionRequest()
@@ -73,12 +72,27 @@ fun CommunicationPageWithPermission() {
 
 @Composable
 fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
-    // Observe transcribed message from ViewModel
     val transcribedMessage by viewModel.message.observeAsState("")
     var typedMessage by remember { mutableStateOf("") }
     var displayedMessage by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+
+    var showSavedMessagesScreen by remember { mutableStateOf(false) }
+    var isFavorite by remember { mutableStateOf(false) } // State to track if the current message is a favorite
+
+    // Update displayed message when transcription changes
+    LaunchedEffect(transcribedMessage) {
+        if (typedMessage.isEmpty() && transcribedMessage.isNotEmpty()) {
+            displayedMessage = transcribedMessage
+        }
+    }
+
+    // Observe saved messages to update the favorite icon
+    val savedMessagesList by viewModel.savedMessages.collectAsState(initial = emptyList())
+    LaunchedEffect(displayedMessage, savedMessagesList) {
+        isFavorite = savedMessagesList.any { it.text == displayedMessage && displayedMessage.isNotEmpty() }
+    }
 
     Box(
         modifier = Modifier
@@ -92,29 +106,42 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                 .align(Alignment.TopCenter),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    painter = painterResource(id = R.drawable.menu_icon),
-                    contentDescription = "Saved Messages Icon",
-                    modifier = Modifier.size(24.dp)
-                )
-                Text(
-                    text = "saved messages",
-                    fontSize = 10.sp,
-                    color = Color.Gray
-                )
+            IconButton(onClick = { showSavedMessagesScreen = true }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.menu_icon),
+                        contentDescription = "Saved Messages Icon",
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "saved messages",
+                        fontSize = 10.sp,
+                        color = Color.Gray
+                    )
+                }
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    painter = painterResource(id = R.drawable.star_icon),
-                    contentDescription = "Add to Favourites Icon",
-                    modifier = Modifier.size(24.dp)
-                )
-                Text(
-                    text = "add to favourites",
-                    fontSize = 10.sp,
-                    color = Color.Gray
-                )
+            IconButton(onClick = {
+                if (displayedMessage.isNotEmpty()) {
+                    if (isFavorite) {
+                        viewModel.removeSavedMessage(displayedMessage)
+                    } else {
+                        viewModel.saveMessage(displayedMessage)
+                    }
+                    isFavorite = !isFavorite
+                }
+            }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        painter = painterResource(id = if (isFavorite) R.drawable.starred_icon else R.drawable.star_icon),
+                        contentDescription = "Add to Favourites Icon",
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "add to favourites",
+                        fontSize = 10.sp,
+                        color = Color.Gray
+                    )
+                }
             }
         }
 
@@ -147,11 +174,10 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                 value = typedMessage,
                 onValueChange = {
                     typedMessage = it
-                    // Update displayed message in real-time as you type
                     if (it.isNotEmpty()) {
                         displayedMessage = it
                     } else {
-                        displayedMessage = ""
+                        displayedMessage = transcribedMessage // Revert to transcribed message if typing is cleared
                     }
                 },
                 modifier = Modifier
@@ -162,7 +188,6 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
                     onDone = {
-                        // Handle Done action: clear text field, update displayed message, and hide keyboard
                         if (typedMessage.isNotEmpty()) {
                             displayedMessage = typedMessage
                             typedMessage = ""
@@ -187,6 +212,18 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                     modifier = Modifier.size(32.dp)
                 )
             }
+        }
+
+        // Show the saved messages screen if the state is true
+        if (showSavedMessagesScreen) {
+            SavedMessagesScreen(
+                viewModel = viewModel,
+                onClose = { showSavedMessagesScreen = false },
+                onMessageSelected = { message ->
+                    displayedMessage = message
+                    typedMessage = "" // Clear the typed message field
+                }
+            )
         }
     }
 }
