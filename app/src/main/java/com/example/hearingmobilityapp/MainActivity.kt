@@ -8,17 +8,24 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.app.ui.screens.NavigationPage
 import com.example.hearingmobilityapp.ui.theme.HearingmobilityappTheme
@@ -190,16 +197,7 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             bottomBar = {
                 if (isUserLoggedIn) {
-                    @Composable
-                    fun BottomNavigationBar(navController: NavHostController) {
-                        val items = listOf(
-                            Screen.Report,
-                            Screen.Navigation,
-                            Screen.Communication,
-                            Screen.Account
-                        )
-                        // You will implement the BottomNavigationBar composable here
-                    }
+                    BottomNavBar(navController = navController)
                 }
             }
         ) { innerPadding ->
@@ -255,8 +253,61 @@ class MainActivity : ComponentActivity() {
                 composable(Screen.Communication.route) {
                     CommunicationPage()
                 }
+                composable(Screen.Report.route) {
+                    // Implement ReportPage here
+                    Text("Report Screen") // Placeholder
+                }
+                composable(Screen.Account.route) {
+                    // Implement AccountPage here
+                    Text("Account Screen") // Placeholder
+                }
+                composable("complaint") {
+                    ComplaintScreen()
+                }
+                composable("trip_details") {
+                    TripDetailsScreen()
+                }
+                composable("emergency_contacts") {
+                    EmergencyContactsScreen()
+                }
             }
         }
     }
 }
-// Add other pages here (Report, Account)
+
+@Composable
+fun BottomNavBar(navController: NavHostController) {
+    val items = listOf(
+        Screen.Report,
+        Screen.Navigation,
+        Screen.Communication,
+        Screen.Account
+    )
+
+    NavigationBar {
+        val navBackStackEntry by navController.currentBackStackEntryAsState()
+        val currentRoute = navBackStackEntry?.destination?.route
+
+        items.forEach { screen ->
+            NavigationBarItem(
+                icon = {
+                    Icon(
+                        painter = painterResource(id = screen.iconRes),
+                        contentDescription = screen.label
+                    )
+                },
+                label = { Text(screen.label) },
+                selected = currentRoute == screen.route,
+                onClick = {
+                    navController.navigate(screen.route) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
+            )
+        }
+    }
+}
