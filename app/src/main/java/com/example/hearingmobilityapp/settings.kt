@@ -100,3 +100,4 @@ fun showToast(context: Context, message: String) {
 fun SettingsScreenPreview() {
     SettingsScreen(onNavigateToEmergencyContacts = {})
 }
+

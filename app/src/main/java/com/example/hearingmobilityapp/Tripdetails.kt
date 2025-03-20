@@ -1,29 +1,23 @@
 package com.example.hearingmobilityapp
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.Button
-import androidx.compose.material.ButtonDefaults
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.Text
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 
 @Composable
 fun TripDetailsScreen() {
@@ -38,8 +32,8 @@ fun TripDetailsScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Placeholder for MapsForge (Replace with Google Maps API)
-        MapsPlaceholder()
+        // OSMDroid Map Integration
+        OSMDroidMap()
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -74,16 +68,28 @@ fun TripHeader() {
 }
 
 @Composable
-fun MapsPlaceholder() {
-    Box(
+fun OSMDroidMap() {
+    val context = LocalContext.current
+    AndroidView(
+        factory = {
+            val mapView = MapView(context)
+            mapView.setTileSource(TileSourceFactory.MAPNIK)
+            mapView.controller.setZoom(10.0)
+            mapView.controller.setCenter(GeoPoint(-1.286389, 36.817223))
+
+            val startMarker = Marker(mapView)
+            startMarker.position = GeoPoint(-1.286389, 36.817223)
+            startMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            startMarker.title = "Start Point"
+            mapView.overlays.add(startMarker)
+
+            mapView
+        },
         modifier = Modifier
             .fillMaxWidth()
             .height(200.dp)
-            .background(Color.LightGray),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("Google Maps Placeholder", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-    }
+            .background(Color.LightGray)
+    )
 }
 
 @Composable

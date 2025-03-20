@@ -1,22 +1,14 @@
 package com.example.app.ui.screens
 
+import android.content.Context
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Card
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.Text
-import androidx.compose.material.TextField
-import androidx.compose.material.TextFieldDefaults
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -27,12 +19,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 
 @Composable
-fun NavigationPage() {
+fun NavigationPage(navController: NavController) {
     var source by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
 
@@ -48,10 +48,26 @@ fun NavigationPage() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFEBE7E7))
+            .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        // Header
-        HeaderSection()
+        // Header with Notification Button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { /* TODO: Open Menu */ }) {
+                Icon(painter = painterResource(id = com.example.hearingmobilityapp.R.drawable.ic_menu), contentDescription = "Menu")
+            }
+            Text(text = "Navigate", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(
+                onClick = { navController.navigate("chatbot") }
+            ) {
+                Icon(painter = painterResource(id = com.example.hearingmobilityapp.R.drawable.ic_notification), contentDescription = "Chat")
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -62,8 +78,19 @@ fun NavigationPage() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // MapsForge Placeholder
-        MapsForgePlaceholder()
+        // OSMDroid Map Integration
+        OSMDroidMap()
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Start Navigation Button
+        Button(
+            onClick = { /* TODO: Start Navigation from source to destination */ },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFF3F51B5))
+        ) {
+            Text(text = "Start Navigation", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -81,24 +108,6 @@ fun NavigationPage() {
             previousRoutes.forEach { route ->
                 RouteCard(route)
             }
-        }
-    }
-}
-
-@Composable
-fun HeaderSection() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = { /* TODO: Open Menu */ }) {
-            Icon(painter = painterResource(id = com.example.hearingmobilityapp.R.drawable.ic_menu), contentDescription = "Menu")
-        }
-        Spacer(modifier = Modifier.weight(1f))
-        Text(text = "Navigate", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.weight(1f))
-        IconButton(onClick = { /* TODO: Open Notifications */ }) {
-            Icon(painter = painterResource(id = com.example.hearingmobilityapp.R.drawable.ic_notification), contentDescription = "Notifications")
         }
     }
 }
@@ -134,21 +143,37 @@ fun RouteCard(routeDetails: String) {
 }
 
 @Composable
-fun MapsForgePlaceholder() {
-    Box(
+fun OSMDroidMap() {
+    val context = LocalContext.current
+    AndroidView(
+        factory = { context: Context ->
+            MapView(context).apply {
+                Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+                setTileSource(TileSourceFactory.MAPNIK)
+                controller.setZoom(15.0)
+                val startPoint = GeoPoint(-1.286389, 36.817223) // Example coordinates for Nairobi, Kenya
+                controller.setCenter(startPoint)
+                val marker = Marker(this)
+                marker.position = startPoint
+                marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                marker.title = "Matatu Stop"
+                overlays.add(marker)
+            }
+        },
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp)
-            .background(Color.LightGray),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("MapsForge Placeholder", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-    }
+            .height(300.dp)
+            .background(Color.LightGray, shape = RoundedCornerShape(8.dp))
+            .padding(16.dp),
+        update = { mapView ->
+            val startPoint = GeoPoint(-1.286389, 36.817223)
+            mapView.controller.setCenter(startPoint)
+        }
+    )
 }
 
 @Preview(showBackground = true)
 @Composable
 fun PreviewNavigationPage() {
-    NavigationPage()
+    NavigationPage(navController = rememberNavController())
 }
-

@@ -31,6 +31,7 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import org.osmdroid.config.Configuration
 
 class MainActivity : ComponentActivity() {
 
@@ -43,6 +44,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Configuration.getInstance().load(this, applicationContext.getSharedPreferences("osmdroid", MODE_PRIVATE))
+
         enableEdgeToEdge()
 
         oneTapSignInClient = Identity.getSignInClient(applicationContext)
@@ -249,11 +252,15 @@ class MainActivity : ComponentActivity() {
                         onGoogleSignIn = { beginGoogleSignIn() }
                     )
                 }
-                composable(Screen.Navigation.route) {
-                    NavigationPage()
-                }
+
                 composable(Screen.Communication.route) {
                     CommunicationPage()
+                }
+                composable(Screen.Navigation.route) {
+                    NavigationPage(navController) // ✅ Pass navController here
+                }
+                composable(route = "chatbot") {
+                    ChatbotScreen()
                 }
             }
         }
