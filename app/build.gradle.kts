@@ -3,7 +3,9 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
+    id("kotlin-kapt")
 }
+
 
 android {
     namespace = "com.example.hearingmobilityapp"
@@ -84,6 +86,8 @@ dependencies {
     implementation(libs.firebase.database)
     implementation("com.squareup.okhttp3:okhttp:4.9.3")
     implementation ("org.osmdroid:osmdroid-android:6.1.10")
+    implementation ("androidx.room:room-runtime:2.5.2")
+    kapt ("androidx.room:room-compiler:2.5.2")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

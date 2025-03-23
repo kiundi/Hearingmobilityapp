@@ -33,26 +33,113 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 class MainActivity : ComponentActivity() {
-
-    private val auth = FirebaseAuth.getInstance()
-    private val firestore = FirebaseFirestore.getInstance()
+    private lateinit var auth: FirebaseAuth
+    private lateinit var gtfsViewModel: GTFSViewModel
+    private lateinit var sharedViewModel: SharedViewModel
     private lateinit var oneTapSignInClient: SignInClient
-
-    private var isUserLoggedIn by mutableStateOf(false)
-    private var startDestinationRoute by mutableStateOf("splash")
+    private val firestore = FirebaseFirestore.getInstance()
+    private var isUserLoggedIn = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Initialize Firebase Auth
+        auth = FirebaseAuth.getInstance()
         oneTapSignInClient = Identity.getSignInClient(applicationContext)
+
+        // Initialize ViewModels
+        gtfsViewModel = GTFSViewModel(GTFSRepository(GTFSDatabase.getDatabase(this)))
+        sharedViewModel = SharedViewModel()
 
         setContent {
             isUserLoggedIn = remember { auth.currentUser != null }
-            startDestinationRoute = if (isUserLoggedIn) Screen.Navigation.route else "splash"
+            val startDestinationRoute = if (isUserLoggedIn) Screen.Navigation.route else "splash"
 
             HearingmobilityappTheme {
-                MainScreen(startDestination = startDestinationRoute)
+                val navController = rememberNavController()
+
+                Scaffold(
+                    bottomBar = {
+                        if (isUserLoggedIn) {
+                            BottomNavigationBar(navController)
+                        }
+                    }
+                ) { innerPadding ->
+                    NavHost(
+                        navController = navController,
+                        startDestination = startDestinationRoute,
+                        modifier = Modifier.padding(innerPadding)
+                    ) {
+                        composable("splash") {
+                            SplashScreen(navController = navController) {
+                                if (isUserLoggedIn) {
+                                    navController.navigate(Screen.Navigation.route) {
+                                        popUpTo(navController.graph.id) { inclusive = true }
+                                    }
+                                } else {
+                                    navController.navigate("signup") {
+                                        popUpTo("splash") { inclusive = true }
+                                    }
+                                }
+                            }
+                        }
+
+                        composable("signup") {
+                            SignupScreen(
+                                navController = navController,
+                                onGoogleSignIn = { beginGoogleSignIn() },
+                                onCreateAccount = { fullName, email, phone, password, setError ->
+                                    createUserWithEmailAndPassword(
+                                        fullName,
+                                        email,
+                                        phone,
+                                        password,
+                                        navController,
+                                        setError
+                                    )
+                                }
+                            )
+                        }
+
+                        composable("login") {
+                            LoginScreen(
+                                navController = navController,
+                                onLogin = { email, password, setError ->
+                                    signInWithEmailAndPassword(
+                                        email,
+                                        password,
+                                        navController,
+                                        setError
+                                    )
+                                },
+                                onGoogleSignIn = { beginGoogleSignIn() }
+                            )
+                        }
+
+                        composable(Screen.Navigation.route) {
+                            NavigationPage(
+                                navController = navController,
+                                sharedViewModel = sharedViewModel
+                            )
+                        }
+
+                        composable("chatbot") {
+                            ChatbotScreen(
+                                gtfsViewModel = gtfsViewModel,
+                                sharedViewModel = sharedViewModel,
+                                onNavigateToMap = {
+                                    navController.navigate(Screen.Navigation.route)
+                                }
+                            )
+                        }
+
+                        // Add other routes (Report, Communication, Account)
+                        composable(Screen.Communication.route) {
+                            CommunicationPage()
+                        }
+                    }
+                }
             }
         }
     }
@@ -182,81 +269,4 @@ class MainActivity : ComponentActivity() {
                 Log.e("Firestore", "Error saving user data", e)
             }
     }
-
-    @Composable
-    fun MainScreen(startDestination: String) {
-        val navController = rememberNavController()
-
-        Scaffold(
-            bottomBar = {
-                if (isUserLoggedIn) {
-                    @Composable
-                    fun BottomNavigationBar(navController: NavHostController) {
-                        val items = listOf(
-                            Screen.Report,
-                            Screen.Navigation,
-                            Screen.Communication,
-                            Screen.Account
-                        )
-                        // You will implement the BottomNavigationBar composable here
-                    }
-                }
-            }
-        ) { innerPadding ->
-            NavHost(
-                navController = navController,
-                startDestination = startDestination,
-                modifier = Modifier.padding(innerPadding)
-            ) {
-                composable("splash") {
-                    SplashScreen(navController = navController) {
-                        if (isUserLoggedIn) {
-                            navigateToHomeScreen(navController)
-                        } else {
-                            navController.navigate("signup") {
-                                popUpTo("splash") { inclusive = true }
-                            }
-                        }
-                    }
-                }
-                composable("signup") {
-                    SignupScreen(
-                        navController = navController,
-                        onGoogleSignIn = { beginGoogleSignIn() },
-                        onCreateAccount = { fullName, email, phone, password, setError -> // Receive setError
-                            createUserWithEmailAndPassword(
-                                fullName,
-                                email,
-                                phone,
-                                password,
-                                navController,
-                                setError // Pass setError to the createUser function
-                            )
-                        }
-                    )
-                }
-                composable("login") {
-                    LoginScreen(
-                        navController = navController,
-                        onLogin = { email, password, setError -> // Receive setError
-                            signInWithEmailAndPassword(
-                                email,
-                                password,
-                                navController,
-                                setError // Pass setError to the signIn function
-                            )
-                        },
-                        onGoogleSignIn = { beginGoogleSignIn() }
-                    )
-                }
-                composable(Screen.Navigation.route) {
-                    NavigationPage()
-                }
-                composable(Screen.Communication.route) {
-                    CommunicationPage()
-                }
-            }
-        }
-    }
 }
-// Add other pages here (Report, Account)
