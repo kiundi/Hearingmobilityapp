@@ -2,13 +2,29 @@ package com.example.hearingmobilityapp
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
 class GTFSRepository(private val db: GTFSDatabase) {
 
-    suspend fun importStopsFromGTFS(context: Context) {
+    suspend fun loadGTFSData(context: Context) {
+        withContext(Dispatchers.IO) {
+            // Clear existing data
+            db.stopDao().deleteAllStops()
+            db.stopDao().deleteAllStopTimes()
+            db.stopDao().deleteAllRoutes()
+            db.stopDao().deleteAllTrips()
+
+            // Import new data
+            importStopsFromGTFS(context)
+            importStopTimesFromGTFS(context)
+            importRoutesFromGTFS(context)
+        }
+    }
+
+    private suspend fun importStopsFromGTFS(context: Context) {
         withContext(Dispatchers.IO) {
             try {
                 val stopsList = mutableListOf<Stopentity>()
@@ -40,7 +56,7 @@ class GTFSRepository(private val db: GTFSDatabase) {
         }
     }
 
-    suspend fun importStopTimesFromGTFS(context: Context) {
+    private suspend fun importStopTimesFromGTFS(context: Context) {
         withContext(Dispatchers.IO) {
             try {
                 val stopTimesList = mutableListOf<StopTimeEntity>()
@@ -68,7 +84,7 @@ class GTFSRepository(private val db: GTFSDatabase) {
         }
     }
 
-    suspend fun importRoutesFromGTFS(context: Context) {
+    private suspend fun importRoutesFromGTFS(context: Context) {
         withContext(Dispatchers.IO) {
             try {
                 val routesList = mutableListOf<RouteEntity>()
@@ -95,27 +111,15 @@ class GTFSRepository(private val db: GTFSDatabase) {
         }
     }
 
-    suspend fun searchStops(query: String): List<Stopentity> {
-        return try {
-            db.stopDao().searchStops("%$query%")
-        } catch (e: Exception) {
-            throw Exception("Failed to search stops: ${e.message}")
-        }
+    fun searchStops(query: String): Flow<List<Stopentity>> {
+        return db.stopDao().searchStops("%$query%")
     }
 
-    suspend fun getRoutesForStop(stopId: String): List<RouteEntity> {
-        return try {
-            db.stopDao().getRoutesForStop(stopId)
-        } catch (e: Exception) {
-            throw Exception("Failed to get routes: ${e.message}")
-        }
+    fun getRoutesForStop(stopId: String): Flow<List<RouteEntity>> {
+        return db.stopDao().getRoutesForStop(stopId)
     }
 
-    suspend fun getTimesForStop(stopId: String): List<StopTimeEntity> {
-        return try {
-            db.stopDao().getTimesForStop(stopId)
-        } catch (e: Exception) {
-            throw Exception("Failed to get times: ${e.message}")
-        }
+    fun getTimesForStop(stopId: String): Flow<List<StopTimeEntity>> {
+        return db.stopDao().getTimesForStop(stopId)
     }
 }

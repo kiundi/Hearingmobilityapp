@@ -6,7 +6,6 @@ plugins {
     id("kotlin-kapt")
 }
 
-
 android {
     namespace = "com.example.hearingmobilityapp"
     compileSdk = 35
@@ -14,12 +13,12 @@ android {
     defaultConfig {
         applicationId = "com.example.hearingmobilityapp"
         minSdk = 24
-        //noinspection OldTargetApi
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "OPENAI_API_KEY", project.findProperty("OPENAI_API_KEY")?.toString() ?: "\"\"")
     }
 
     buildTypes {
@@ -30,20 +29,30 @@ android {
                 "proguard-rules.pro"
             )
         }
+        debug {
+            isJniDebuggable = true
+        }
     }
+    
+    androidResources {
+        noCompress.add("")
+        ignoreAssetsPattern = "!.svn:!.git:!.gitignore:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"
+    }
+    
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.11"
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "1.8"
     }
     buildFeatures {
         compose = true
         viewBinding = true
+        buildConfig = true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.1"
     }
     dependenciesInfo {
         includeInApk = true
@@ -86,8 +95,10 @@ dependencies {
     implementation(libs.firebase.database)
     implementation("com.squareup.okhttp3:okhttp:4.9.3")
     implementation ("org.osmdroid:osmdroid-android:6.1.10")
-    implementation ("androidx.room:room-runtime:2.5.2")
-    kapt ("androidx.room:room-compiler:2.5.2")
+    implementation ("androidx.room:room-runtime:2.6.1")
+    implementation ("androidx.room:room-ktx:2.6.1")
+    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    kapt ("androidx.room:room-compiler:2.6.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

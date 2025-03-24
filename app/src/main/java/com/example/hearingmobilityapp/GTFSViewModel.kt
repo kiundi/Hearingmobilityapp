@@ -1,87 +1,50 @@
 package com.example.hearingmobilityapp
 
-import android.content.Context
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.example.hearingmobilityapp.GTFSDatabase
+import com.example.hearingmobilityapp.GTFSRepository
+import com.example.hearingmobilityapp.Stopentity
+import com.example.hearingmobilityapp.RouteEntity
+import com.example.hearingmobilityapp.StopTimeEntity
 
-sealed class GTFSState {
-    object Loading : GTFSState()
-    object Success : GTFSState()
-    data class Error(val message: String) : GTFSState()
-    object Idle : GTFSState()
-}
+class GTFSViewModel(application: Application) : AndroidViewModel(application) {
+    private val database: GTFSDatabase = GTFSDatabase.getDatabase(application)
+    private val repository: GTFSRepository = GTFSRepository(database)
 
-class GTFSViewModel(private val repository: GTFSRepository) : ViewModel() {
-    private val _gtfsState = MutableStateFlow<GTFSState>(GTFSState.Idle)
-    val gtfsState: StateFlow<GTFSState> = _gtfsState
-
-    private val _isDataImported = MutableStateFlow(false)
-    val isDataImported: StateFlow<Boolean> = _isDataImported
-
-    fun importAllGTFSData(context: Context) {
-        if (_isDataImported.value) return // Skip if already imported
-        
-        viewModelScope.launch(Dispatchers.IO) {
+    fun loadGTFSData() {
+        viewModelScope.launch {
             try {
-                _gtfsState.value = GTFSState.Loading
-                repository.importStopsFromGTFS(context)
-                repository.importStopTimesFromGTFS(context)
-                repository.importRoutesFromGTFS(context)
-                _isDataImported.value = true
-                _gtfsState.value = GTFSState.Success
+                repository.loadGTFSData(getApplication())
             } catch (e: Exception) {
-                _gtfsState.value = GTFSState.Error("Failed to import GTFS data: ${e.message}")
+                // Handle error
             }
         }
     }
 
-    fun searchStops(query: String, onResult: (List<Stopentity>) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val stops = repository.searchStops(query)
-                withContext(Dispatchers.Main) {
-                    onResult(stops)
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    onResult(emptyList())
-                }
-            }
-        }
+    fun searchStops(query: String): Flow<List<Stopentity>> {
+        return repository.searchStops(query)
     }
 
-    fun getRoutesForStop(stopId: String, onResult: (List<RouteEntity>) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val routes = repository.getRoutesForStop(stopId)
-                withContext(Dispatchers.Main) {
-                    onResult(routes)
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    onResult(emptyList())
-                }
-            }
-        }
+    fun getRoutesForStop(stopId: String): Flow<List<RouteEntity>> {
+        return repository.getRoutesForStop(stopId)
     }
 
-    fun getTimesForStop(stopId: String, onResult: (List<StopTimeEntity>) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val times = repository.getTimesForStop(stopId)
-                withContext(Dispatchers.Main) {
-                    onResult(times)
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    onResult(emptyList())
-                }
+    fun getTimesForStop(stopId: String): Flow<List<StopTimeEntity>> {
+        return repository.getTimesForStop(stopId)
+    }
+
+    class Factory(private val application: Application) : ViewModelProvider.Factory {
+        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(GTFSViewModel::class.java)) {
+                @Suppress("UNCHECKED_CAST")
+                return GTFSViewModel(application) as T
             }
+            throw IllegalArgumentException("Unknown ViewModel class")
         }
     }
 }

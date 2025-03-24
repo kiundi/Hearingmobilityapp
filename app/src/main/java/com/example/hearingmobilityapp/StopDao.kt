@@ -1,6 +1,7 @@
 package com.example.hearingmobilityapp
 
 import androidx.room.*
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface StopDao {
@@ -13,24 +14,17 @@ interface StopDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRoutes(routes: List<RouteEntity>)
 
-    @Query("SELECT * FROM stops WHERE stop_name LIKE :query")
-    suspend fun searchStops(query: String): List<Stopentity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTrips(trips: List<TripEntity>)
 
-    @Query("""
-        SELECT DISTINCT r.* FROM routes r
-        INNER JOIN stop_times st ON st.trip_id = r.route_id
-        WHERE st.stop_id = :stopId
-    """)
-    suspend fun getRoutesForStop(stopId: String): List<RouteEntity>
+    @Query("SELECT * FROM stops WHERE stop_name LIKE '%' || :searchQuery || '%'")
+    fun searchStops(searchQuery: String): Flow<List<Stopentity>>
 
-    @Query("""
-        SELECT * FROM stop_times 
-        WHERE stop_id = :stopId 
-        AND departure_time >= time('now', 'localtime')
-        ORDER BY departure_time ASC
-        LIMIT 10
-    """)
-    suspend fun getTimesForStop(stopId: String): List<StopTimeEntity>
+    @Query("SELECT DISTINCT r.* FROM routes r INNER JOIN trips t ON r.route_id = t.route_id INNER JOIN stop_times st ON t.trip_id = st.trip_id WHERE st.stop_id = :stopId")
+    fun getRoutesForStop(stopId: String): Flow<List<RouteEntity>>
+
+    @Query("SELECT * FROM stop_times WHERE stop_id = :stopId ORDER BY arrival_time")
+    fun getTimesForStop(stopId: String): Flow<List<StopTimeEntity>>
 
     @Query("DELETE FROM stops")
     suspend fun deleteAllStops()
@@ -40,4 +34,7 @@ interface StopDao {
 
     @Query("DELETE FROM routes")
     suspend fun deleteAllRoutes()
+
+    @Query("DELETE FROM trips")
+    suspend fun deleteAllTrips()
 }
