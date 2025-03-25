@@ -1,0 +1,6 @@
+stop_id,stop_code,stop_name,stop_lat,stop_lon,zone_id,stop_url,location_type,parent_station
+STOP1,1001,Central Station,1.2921,36.8219,ZONE1,http://example.com/stop1,0,
+STOP2,1002,City Mall,1.2922,36.8220,ZONE1,http://example.com/stop2,0,
+STOP3,1003,University,1.2923,36.8221,ZONE2,http://example.com/stop3,0,
+STOP4,1004,Hospital,1.2924,36.8222,ZONE2,http://example.com/stop4,0,
+STOP5,1005,Market Square,1.2925,36.8223,ZONE1,http://example.com/stop5,0,

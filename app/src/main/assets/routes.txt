@@ -1,0 +1,6 @@
+route_id,route_short_name,route_long_name,route_type
+ROUTE1,1,Central Line,3
+ROUTE2,2,City Circle,3
+ROUTE3,3,University Express,3
+ROUTE4,4,Hospital Link,3
+ROUTE5,5,Market Route,3

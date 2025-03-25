@@ -28,5 +28,8 @@ data class TripEntity(
     val trip_headsign: String,
 
     @ColumnInfo(name = "service_id")
-    val service_id: String
+    val service_id: String,
+
+    @ColumnInfo(name = "shape_id", defaultValue = "")
+    val shape_id: String = ""
 )

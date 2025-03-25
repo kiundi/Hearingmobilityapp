@@ -8,9 +8,14 @@ import androidx.room.TypeConverters
 
 @Database(
     entities = [
-        Stopentity::class,
-        StopTimeEntity::class,
+        AgencyEntity::class,
+        CalendarEntity::class,
+        CalendarDateEntity::class,
+        FrequencyEntity::class,
         RouteEntity::class,
+        ShapeEntity::class,
+        StopEntity::class,
+        StopTimeEntity::class,
         TripEntity::class
     ],
     version = 1,
@@ -18,7 +23,15 @@ import androidx.room.TypeConverters
 )
 @TypeConverters(Converters::class)
 abstract class GTFSDatabase : RoomDatabase() {
+    abstract fun agencyDao(): AgencyDao
+    abstract fun calendarDao(): CalendarDao
+    abstract fun calendarDateDao(): CalendarDateDao
+    abstract fun frequencyDao(): FrequencyDao
+    abstract fun routeDao(): RouteDao
+    abstract fun shapeDao(): ShapeDao
     abstract fun stopDao(): StopDao
+    abstract fun stopTimeDao(): StopTimeDao
+    abstract fun tripDao(): TripDao
 
     companion object {
         @Volatile
@@ -30,9 +43,7 @@ abstract class GTFSDatabase : RoomDatabase() {
                     context.applicationContext,
                     GTFSDatabase::class.java,
                     "gtfs_database"
-                )
-                .fallbackToDestructiveMigration()
-                .build()
+                ).build()
                 INSTANCE = instance
                 instance
             }
