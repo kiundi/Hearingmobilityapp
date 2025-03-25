@@ -27,6 +27,7 @@ uiTestManifest = "1.7.8"
 uiTooling = "1.7.8"
 uiToolingPreview = "1.7.8"
 firebaseDatabase = "21.0.0"
+uiTestAndroid = "1.7.8"
 
 [libraries]
 accompanist-permissions = { module = "com.google.accompanist:accompanist-permissions", version.ref = "accompanistPermissions" }
@@ -63,6 +64,7 @@ ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest", version.re
 ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = "uiTooling" }
 ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", version.ref = "uiToolingPreview" }
 firebase-database = { group = "com.google.firebase", name = "firebase-database", version.ref = "firebaseDatabase" }
+androidx-ui-test-android = { group = "androidx.compose.ui", name = "ui-test-android", version.ref = "uiTestAndroid" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

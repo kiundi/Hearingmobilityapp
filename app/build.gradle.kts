@@ -42,6 +42,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
         jvmTarget = "1.8"
@@ -97,8 +98,11 @@ dependencies {
     implementation ("org.osmdroid:osmdroid-android:6.1.10")
     implementation ("androidx.room:room-runtime:2.6.1")
     implementation ("androidx.room:room-ktx:2.6.1")
-    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     kapt ("androidx.room:room-compiler:2.6.1")
+    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("androidx.compose.material3:material3:1.1.2")
+    implementation ("androidx.compose.material:material:1.7.8")
+    implementation(libs.androidx.ui.test.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -108,4 +112,12 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.2")
+}
+
+// Added resolution strategy to force espresso-core to version 3.5.0 to resolve dependency conflicts
+configurations.all {
+    resolutionStrategy {
+        force("androidx.test.espresso:espresso-core:3.5.0")
+    }
 }

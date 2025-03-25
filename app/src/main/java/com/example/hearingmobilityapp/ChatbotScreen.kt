@@ -1,4 +1,4 @@
-package com.example.hearingmobilityapp
+/*package com.example.hearingmobilityapp
 
 import android.app.Application
 import androidx.compose.foundation.layout.*
@@ -113,3 +113,4 @@ fun ChatbotScreen(
         }
     }
 }
+*/
