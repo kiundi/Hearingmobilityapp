@@ -24,8 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,31 +32,39 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Data model for saved messages.
-data class SavedMessages(val id: String, val text: String)
+// Dummy data model for saved routes.
+data class SavedRoute(val id: String, val name: String, val details: String)
 
 @Composable
-fun SavedMessagesScreen(
-    viewModel: CommunicationViewModel,
+fun SavedRoutesScreen(
+    viewModel: CommunicationViewModel, // Now using CommunicationViewModel instead of SharedViewModel.
     onClose: () -> Unit,
-    onMessageSelected: (String) -> Unit
+    onRouteSelected: (SavedRoute) -> Unit
 ) {
-    val savedMessages by viewModel.savedMessages.collectAsState(initial = emptyList())
+    // For now, we define a dummy list. Later, connect to the database or view model.
+    val savedRoutes = remember {
+        listOf(
+            SavedRoute("1", "Home to Office", "Via Main St"),
+            SavedRoute("2", "Office to Gym", "Via 2nd Ave")
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Faded background overlay
+        // Faded background overlay.
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight()
+                .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.3f))
         )
-        // Slide-in panel from the left for saved messages
+        // Sidebar panel sliding from the left.
         Column(
             modifier = Modifier
                 .fillMaxHeight()
                 .width(300.dp)
-                .background(Color.White, shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
+                .background(
+                    color = Color.White,
+                    shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
+                )
                 .padding(16.dp)
         ) {
             Row(
@@ -66,23 +73,25 @@ fun SavedMessagesScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back"
+                    )
                 }
                 Text(
-                    text = "Saved Messages",
+                    text = "Saved Routes",
                     fontSize = 18.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f)
                 )
-                // Spacer to balance layout (same width as the IconButton)
                 Spacer(modifier = Modifier.size(48.dp))
             }
             Spacer(modifier = Modifier.height(16.dp))
-            if (savedMessages.isEmpty()) {
-                Text("No saved messages yet.", color = Color.Gray, fontSize = 16.sp)
+            if (savedRoutes.isEmpty()) {
+                Text("No saved routes yet.", color = Color.Gray, fontSize = 16.sp)
             } else {
                 LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-                    items(savedMessages) { message ->
+                    items(savedRoutes) { route ->
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -92,12 +101,16 @@ fun SavedMessagesScreen(
                                     shape = RoundedCornerShape(8.dp)
                                 )
                                 .clickable {
-                                    onMessageSelected(message.text)
+                                    onRouteSelected(route)
                                     onClose()
                                 }
                                 .padding(16.dp)
                         ) {
-                            Text(text = message.text, fontSize = 16.sp, color = Color.Black)
+                            Column {
+                                Text(text = route.name, fontSize = 16.sp, color = Color.Black)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(text = route.details, fontSize = 14.sp, color = Color.DarkGray)
+                            }
                         }
                     }
                 }

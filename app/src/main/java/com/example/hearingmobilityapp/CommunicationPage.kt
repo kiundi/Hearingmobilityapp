@@ -1,27 +1,24 @@
 package com.example.hearingmobilityapp
 
-import android.Manifest
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -35,193 +32,150 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.PermissionStatus
-import com.google.accompanist.permissions.rememberPermissionState
 
-@OptIn(ExperimentalPermissionsApi::class)
-@Composable
-fun CommunicationPageWithPermission() {
-    val recordAudioPermissionState = rememberPermissionState(Manifest.permission.RECORD_AUDIO)
-
-    when (recordAudioPermissionState.status) {
-        PermissionStatus.Granted -> {
-            CommunicationPage()
-        }
-
-        is PermissionStatus.Denied -> {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text("This feature requires microphone access.")
-                Button(onClick = { recordAudioPermissionState.launchPermissionRequest() }) {
-                    Text("Request Permission")
-                }
-            }
-            if (!(recordAudioPermissionState.status as PermissionStatus.Denied).shouldShowRationale) {
-                SideEffect {
-                    recordAudioPermissionState.launchPermissionRequest()
-                }
-            }
-        }
-    }
-}
+private const val MAX_CHARACTERS = 500
 
 @Composable
-fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
-    val transcribedMessage by viewModel.message.observeAsState("")
+fun CommunicationPage() {
     var typedMessage by remember { mutableStateOf("") }
     var displayedMessage by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
 
     var showSavedMessagesScreen by remember { mutableStateOf(false) }
-    var isFavorite by remember { mutableStateOf(false) } // State to track if the current message is a favorite
-
-    // Update displayed message when transcription changes
-    LaunchedEffect(transcribedMessage) {
-        if (typedMessage.isEmpty() && transcribedMessage.isNotEmpty()) {
-            displayedMessage = transcribedMessage
-        }
-    }
-
-    // Observe saved messages to update the favorite icon
-    val savedMessagesList by viewModel.savedMessages.collectAsState(initial = emptyList())
-    LaunchedEffect(displayedMessage, savedMessagesList) {
-        isFavorite = savedMessagesList.any { it.text == displayedMessage && displayedMessage.isNotEmpty() }
-    }
+    var isFavorite by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color(0xFFF2F2F7))
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        // Top Row: Saved Messages & Add to Favourites
+        // Top Row: Saved Messages & Favorites without clipping in a simple layout.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.TopCenter),
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { showSavedMessagesScreen = true }) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         painter = painterResource(id = R.drawable.menu_icon),
-                        contentDescription = "Saved Messages Icon",
-                        modifier = Modifier.size(24.dp)
+                        contentDescription = "Saved Messages",
+                        modifier = Modifier.size(24.dp),
+                        tint = Color(0xFF007AFF)
                     )
                     Text(
-                        text = "saved messages",
+                        text = "Saved",
                         fontSize = 10.sp,
-                        color = Color.Gray
+                        color = Color(0xFF6C757D)
                     )
                 }
             }
-            IconButton(onClick = {
-                if (displayedMessage.isNotEmpty()) {
-                    if (isFavorite) {
-                        viewModel.removeSavedMessage(displayedMessage)
-                    } else {
-                        viewModel.saveMessage(displayedMessage)
-                    }
-                    isFavorite = !isFavorite
-                }
-            }) {
+            IconButton(onClick = { /* Handle favorite toggle */ }) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        painter = painterResource(id = if (isFavorite) R.drawable.starred_icon else R.drawable.star_icon),
-                        contentDescription = "Add to Favourites Icon",
-                        modifier = Modifier.size(24.dp)
+                        painter = painterResource(
+                            id = if (isFavorite) R.drawable.starred_icon else R.drawable.star_icon
+                        ),
+                        contentDescription = "Favorites",
+                        modifier = Modifier.size(24.dp),
+                        tint = if (isFavorite) Color(0xFFFF9500) else Color(0xFF007AFF)
                     )
                     Text(
-                        text = "add to favourites",
+                        text = "Favs",
                         fontSize = 10.sp,
-                        color = Color.Gray
+                        color = Color(0xFF6C757D)
                     )
                 }
             }
         }
 
-        // Center: Large text area for the transcribed message
+        // Center: Signboard for displaying the message.
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp)
-                .padding(top = 50.dp, bottom = 100.dp),
+                .fillMaxWidth()
+                // Padding adjusted to center text between top icons and bottom input.
+                .padding(top = 40.dp, bottom = 80.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = if (displayedMessage.isNotEmpty()) displayedMessage else transcribedMessage.ifEmpty { "Message appears here" },
-                color = if (displayedMessage.isNotEmpty() || transcribedMessage.isNotEmpty()) Color.Black else Color.LightGray,
-                fontSize = if (displayedMessage.isNotEmpty()) 30.sp else 50.sp,
+                text = if (displayedMessage.isNotEmpty()) displayedMessage else "Message appears here",
+                color = if (displayedMessage.isNotEmpty()) Color.Black else Color.LightGray,
+                fontSize = if (displayedMessage.isNotEmpty()) 36.sp else 48.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
-                maxLines = 3,
+                maxLines = Int.MAX_VALUE // Allow text to wrap indefinitely.
             )
         }
 
-        // Bottom Row: TextField + Microphone button
+        // Bottom Row: Multi-line TextField and Microphone Button.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(bottom = 8.dp)
                 .align(Alignment.BottomCenter),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextField(
+            OutlinedTextField(
                 value = typedMessage,
-                onValueChange = {
-                    typedMessage = it
-                    if (it.isNotEmpty()) {
-                        displayedMessage = it
-                    } else {
-                        displayedMessage = transcribedMessage // Revert to transcribed message if typing is cleared
+                onValueChange = { newText ->
+                    if (newText.length <= MAX_CHARACTERS) {
+                        typedMessage = newText
+                        displayedMessage = newText.ifEmpty { "Message appears here" }
                     }
                 },
                 modifier = Modifier
                     .weight(1f)
+                    .heightIn(min = 56.dp, max = 120.dp)
                     .padding(end = 8.dp),
-                placeholder = { Text("Type message here...") },
-                singleLine = true,
+                placeholder = { Text("Type message here...", color = Color.LightGray) },
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    fontSize = 16.sp,
+                    color = Color.Black,
+                    textAlign = TextAlign.Start
+                ),
+                singleLine = false, // Allow multi-line input.
+                maxLines = Int.MAX_VALUE,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
                     onDone = {
-                        if (typedMessage.isNotEmpty()) {
-                            displayedMessage = typedMessage
-                            typedMessage = ""
-                        }
+                        displayedMessage = typedMessage
+                        typedMessage = ""
                         focusManager.clearFocus()
                     }
+                ),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF007AFF),
+                    unfocusedBorderColor = Color(0xFF6C757D),
+                    focusedTextColor = Color.Black,
+                    unfocusedTextColor = Color.Black,
+                    cursorColor = Color.Black
                 )
             )
-
-            IconButton(onClick = {
-                if (!isListening) {
-                    viewModel.startListening()
-                } else {
-                    viewModel.stopListening()
-                }
-                isListening = !isListening
-            }) {
+            IconButton(onClick = { isListening = !isListening }) {
                 Icon(
                     painter = painterResource(id = R.drawable.microphone_icon),
-                    contentDescription = "Microphone Icon",
-                    tint = Color.Black,
+                    contentDescription = "Microphone",
+                    tint = if (isListening) Color(0xFFFF9500) else Color(0xFF007AFF),
                     modifier = Modifier.size(32.dp)
                 )
             }
         }
 
-        // Show the saved messages screen if the state is true
+        // Overlay for Saved Messages Screen.
         if (showSavedMessagesScreen) {
             SavedMessagesScreen(
-                viewModel = viewModel,
+                viewModel = /* viewModel instance here; e.g., obtain via viewModel() */
+                // For preview purposes, you can pass a dummy viewModel.
+                CommunicationViewModel(),
                 onClose = { showSavedMessagesScreen = false },
-                onMessageSelected = { message ->
-                    displayedMessage = message
-                    typedMessage = "" // Clear the typed message field
+                onMessageSelected = { selectedMessage ->
+                    // Update displayed message from saved selection.
+                    displayedMessage = selectedMessage
+                    showSavedMessagesScreen = false
                 }
             )
         }
@@ -230,6 +184,6 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
 
 @Preview(showBackground = true)
 @Composable
-fun CommunicationPreview() {
+fun CommunicationPagePreview() {
     CommunicationPage()
 }
