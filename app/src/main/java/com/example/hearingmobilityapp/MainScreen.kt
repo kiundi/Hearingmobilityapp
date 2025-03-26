@@ -23,6 +23,10 @@ fun MainScreen() {
         Screen.Account
     )
 
+    // Create shared ViewModels at the top level to share across screens
+    val sharedViewModel: SharedViewModel = viewModel()
+    val communicationViewModel: CommunicationViewModel = viewModel()
+
     Scaffold(
         bottomBar = { BottomNavBar(navController = bottomNavController, items = bottomNavItems) }
     ) { innerPadding ->
@@ -33,8 +37,6 @@ fun MainScreen() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Navigation.route) {
-                val sharedViewModel: SharedViewModel = viewModel()
-                val communicationViewModel: CommunicationViewModel = viewModel()
                 NavigationScreen(
                     navController = bottomNavController, 
                     sharedViewModel = sharedViewModel,
@@ -43,8 +45,7 @@ fun MainScreen() {
             }
 
             composable(Screen.Communication.route) { 
-                val communicationViewModel: CommunicationViewModel = viewModel()
-                CommunicationPage(communicationViewModel = communicationViewModel) 
+                CommunicationPage(viewModel = communicationViewModel) 
             }
             composable(Screen.Account.route) {AccountScreen(navController = rememberNavController()) }
             
@@ -53,7 +54,6 @@ fun MainScreen() {
                 val gtfsViewModel: GTFSViewModel = viewModel(
                     factory = GTFSViewModel.Factory(LocalContext.current.applicationContext as Application)
                 )
-                val sharedViewModel: SharedViewModel = viewModel()
                 ChatbotScreen(
                     gtfsViewModel = gtfsViewModel,
                     sharedViewModel = sharedViewModel,
@@ -63,7 +63,7 @@ fun MainScreen() {
             
             // Add TripDetailsScreen as a destination
             composable("TripDetailsScreen") {
-                TripDetailsScreen()
+                TripDetailsScreen(sharedViewModel = sharedViewModel)
             }
         }
     }
