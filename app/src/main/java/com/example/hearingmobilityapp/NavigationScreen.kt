@@ -80,7 +80,7 @@ fun NavigationScreen(
                 }
             }
             // Top Right: Chat Button.
-            IconButton(onClick = { navController.navigate("chatbot") }) {
+            IconButton(onClick = { navController.navigate("ChatbotScreen") }) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_notification),
