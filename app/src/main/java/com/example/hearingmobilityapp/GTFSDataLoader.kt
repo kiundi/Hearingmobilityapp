@@ -137,7 +137,7 @@ object GTFSDataLoader {
     private suspend fun loadStops(context: Context, database: GTFSDatabase) {
         try {
             val stops = GTFSFileReader.readGTFSFile(context, "stops.txt").map {
-                Stopentity(
+                StopEntity(
                     stop_id = it["stop_id"] ?: "",
                     stop_name = it["stop_name"] ?: "",
                     stop_lat = it["stop_lat"]?.toDoubleOrNull() ?: 0.0,

@@ -27,14 +27,14 @@ class GTFSRepository(private val db: GTFSDatabase) {
     private suspend fun importStopsFromGTFS(context: Context) {
         withContext(Dispatchers.IO) {
             try {
-                val stopsList = mutableListOf<Stopentity>()
+                val stopsList = mutableListOf<StopEntity>()
                 context.assets.open("stops.txt").use { inputStream ->
                     val reader = BufferedReader(InputStreamReader(inputStream))
                     reader.readLine() // Skip header
                     reader.forEachLine { line ->
                         val tokens = line.split(",")
                         if (tokens.size >= 5) {
-                            val stop = Stopentity(
+                            val stop = StopEntity(
                                 stop_id = tokens[0],
                                 stop_name = tokens[2],
                                 stop_lat = tokens[3].toDoubleOrNull() ?: 0.0,
@@ -111,7 +111,7 @@ class GTFSRepository(private val db: GTFSDatabase) {
         }
     }
 
-    fun searchStops(query: String): Flow<List<Stopentity>> {
+    fun searchStops(query: String): Flow<List<StopEntity>> {
         return db.stopDao().searchStops("%$query%")
     }
 

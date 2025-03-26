@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import com.example.hearingmobilityapp.GTFSDatabase
 import com.example.hearingmobilityapp.GTFSRepository
-import com.example.hearingmobilityapp.Stopentity
+import com.example.hearingmobilityapp.StopEntity
 import com.example.hearingmobilityapp.RouteEntity
 import com.example.hearingmobilityapp.StopTimeEntity
 
@@ -26,7 +26,7 @@ class GTFSViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun searchStops(query: String): Flow<List<Stopentity>> {
+    fun searchStops(query: String): Flow<List<StopEntity>> {
         return repository.searchStops(query)
     }
 

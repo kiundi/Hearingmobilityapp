@@ -31,20 +31,16 @@ interface StopTimeDao {
     """)
     fun getStopTimesForRoute(routeId: String, currentTime: String): Flow<List<StopTimeEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertStopTime(stopTime: StopTimeEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertStopTimes(stopTimes: List<StopTimeEntity>)
-
-    @Update
-    suspend fun updateStopTime(stopTime: StopTimeEntity)
-
-    @Delete
-    suspend fun deleteStopTime(stopTime: StopTimeEntity)
-
-    @Query("DELETE FROM stop_times")
-    suspend fun deleteAllStopTimes()
+    @Query("""
+        SELECT st.* 
+        FROM stop_times st 
+        INNER JOIN trips t ON st.trip_id = t.trip_id 
+        WHERE t.route_id = :routeId 
+        AND st.arrival_time >= :currentTime
+        ORDER BY st.arrival_time ASC
+        LIMIT :limit
+    """)
+    fun getUpcomingStopTimesForRoute(routeId: String, currentTime: String, limit: Int = 5): Flow<List<StopTimeEntity>>
 
     @Query("""
         SELECT st.* 
@@ -62,6 +58,21 @@ interface StopTimeDao {
         currentTime: String,
         limit: Int = 5
     ): Flow<List<StopTimeEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStopTime(stopTime: StopTimeEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStopTimes(stopTimes: List<StopTimeEntity>)
+
+    @Update
+    suspend fun updateStopTime(stopTime: StopTimeEntity)
+
+    @Delete
+    suspend fun deleteStopTime(stopTime: StopTimeEntity)
+
+    @Query("DELETE FROM stop_times")
+    suspend fun deleteAllStopTimes()
 
     @Query("SELECT COUNT(*) FROM stop_times")
     fun getStopTimeCount(): Flow<Int>
