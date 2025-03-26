@@ -98,7 +98,7 @@ dependencies {
     implementation (libs.osmdroid.android)
     implementation (libs.androidx.room.runtime)
     implementation (libs.androidx.room.ktx)
-    ksp (libs.androidx.room.compiler)
+    ksp(libs.androidx.room.compiler)
     implementation (libs.kotlinx.coroutines.android)
     implementation(libs.material3)
     implementation (libs.androidx.material)
@@ -115,6 +115,7 @@ dependencies {
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.2")
+    implementation ("androidx.compose.material:material:1.7.8")
 }
 
 // Added resolution strategy to force espresso-core to version 3.5.0 to resolve dependency conflicts
