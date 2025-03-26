@@ -1,4 +1,4 @@
-/*package com.example.hearingmobilityapp
+package com.example.hearingmobilityapp
 
 import android.app.Application
 import androidx.compose.foundation.layout.*
@@ -6,12 +6,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import com.example.hearingmobilityapp.GTFSViewModel
+import com.example.hearingmobilityapp.SharedViewModel
 
 @Composable
 fun ChatbotScreen(
@@ -25,9 +29,21 @@ fun ChatbotScreen(
     var userInput by remember { mutableStateOf("") }
     var messages by remember { mutableStateOf(listOf<String>()) }
     val scope = rememberCoroutineScope()
-
+    
+    // Observe data loading state
+    val isDataLoaded by gtfsViewModel.isDataLoaded.observeAsState(false)
+    val dataLoadingError by gtfsViewModel.dataLoadingError.observeAsState(null)
+    
+    // Add initial message
     LaunchedEffect(Unit) {
-        gtfsViewModel.loadGTFSData()
+        messages = listOf("Welcome to the Transit Information Chatbot! You can ask about stops, routes, and schedules.")
+    }
+    
+    // Show error if data loading failed
+    LaunchedEffect(dataLoadingError) {
+        dataLoadingError?.let { error ->
+            messages = messages + "Error loading transit data: $error. Please try again later."
+        }
     }
 
     Column(
@@ -65,6 +81,11 @@ fun ChatbotScreen(
                             val query = userInput
                             messages = messages + "You: $query"
                             userInput = ""
+                            
+                            if (!isDataLoaded) {
+                                messages = messages + "Transit data is still loading. Please try again in a moment."
+                                return@launch
+                            }
 
                             // Search for stops
                             gtfsViewModel.searchStops(query)
@@ -74,6 +95,9 @@ fun ChatbotScreen(
                                             "Stop: ${stop.stop_name} (ID: ${stop.stop_id})"
                                         }
                                         messages = messages + "Found stops:\n$stopInfo"
+                                        
+                                        // Save the stop information to the shared view model
+                                        sharedViewModel.updateMessage(stops.first().stop_name)
 
                                         // Get routes for first stop
                                         gtfsViewModel.getRoutesForStop(stops.first().stop_id)
@@ -83,6 +107,8 @@ fun ChatbotScreen(
                                                         "${route.route_short_name} - ${route.route_long_name}"
                                                     }
                                                     messages = messages + "Routes:\n$routeInfo"
+                                                } else {
+                                                    messages = messages + "No routes found for this stop."
                                                 }
                                             }
 
@@ -94,14 +120,16 @@ fun ChatbotScreen(
                                                         "Arrival: ${time.arrival_time}, Departure: ${time.departure_time}"
                                                     }
                                                     messages = messages + "Next departures:\n$timeInfo"
+                                                } else {
+                                                    messages = messages + "No schedule information available for this stop."
                                                 }
                                             }
                                     } else {
-                                        messages = messages + "No stops found matching your query."
+                                        messages = messages + "No stops found matching your query. Try a different name or location."
                                     }
                                 }
                                 .catch { e ->
-                                    messages = messages + "Error: ${e.message}"
+                                    messages = messages + "Error searching for transit information: ${e.message}"
                                 }
                                 .launchIn(scope)
                         }
@@ -111,6 +139,15 @@ fun ChatbotScreen(
                 Text("Send")
             }
         }
+        
+        // Add a button to navigate to the map
+        Button(
+            onClick = onNavigateToMap,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        ) {
+            Text("View on Map")
+        }
     }
 }
-*/

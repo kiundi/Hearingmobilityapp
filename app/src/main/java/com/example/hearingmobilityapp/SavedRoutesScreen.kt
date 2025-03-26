@@ -33,7 +33,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 // Dummy data model for saved routes.
-data class SavedRoute(val id: String, val name: String, val details: String)
+data class SavedRoute(
+    val id: String, 
+    val name: String, 
+    val details: String,
+    val startLocation: String = "Home",
+    val endLocation: String = "Office"
+)
 
 @Composable
 fun SavedRoutesScreen(
@@ -44,8 +50,8 @@ fun SavedRoutesScreen(
     // For now, we define a dummy list. Later, connect to the database or view model.
     val savedRoutes = remember {
         listOf(
-            SavedRoute("1", "Home to Office", "Via Main St"),
-            SavedRoute("2", "Office to Gym", "Via 2nd Ave")
+            SavedRoute("1", "Home to Office", "Via Main St", "Home", "Office"),
+            SavedRoute("2", "Office to Gym", "Via 2nd Ave", "Office", "Gym")
         )
     }
 

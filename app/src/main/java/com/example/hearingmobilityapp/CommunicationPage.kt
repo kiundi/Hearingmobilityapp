@@ -32,11 +32,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 private const val MAX_CHARACTERS = 500
 
 @Composable
-fun CommunicationPage() {
+fun CommunicationPage(communicationViewModel: CommunicationViewModel = viewModel()) {
     var typedMessage by remember { mutableStateOf("") }
     var displayedMessage by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
@@ -168,9 +169,7 @@ fun CommunicationPage() {
         // Overlay for Saved Messages Screen.
         if (showSavedMessagesScreen) {
             SavedMessagesScreen(
-                viewModel = /* viewModel instance here; e.g., obtain via viewModel() */
-                // For preview purposes, you can pass a dummy viewModel.
-                CommunicationViewModel(),
+                viewModel = communicationViewModel,
                 onClose = { showSavedMessagesScreen = false },
                 onMessageSelected = { selectedMessage ->
                     // Update displayed message from saved selection.
