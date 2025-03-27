@@ -1,5 +1,7 @@
 package com.example.hearingmobilityapp
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -9,17 +11,19 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import android.util.Log
 
 data class SavedMessages(val id: String, val text: String, val isFavorite: Boolean = false)
 
-class CommunicationViewModel : ViewModel() {
+class CommunicationViewModel(application: Application) : AndroidViewModel(application) {
     private val _message = MutableLiveData<String>()
     val message: LiveData<String> = _message
 
-    private val _isListening = MutableLiveData<Boolean>()
-    val isListening: LiveData<Boolean> = _isListening
+    private val _isListening = MutableStateFlow(false)
+    val isListening: StateFlow<Boolean> = _isListening
 
     private val _savedMessages = MutableStateFlow<List<SavedMessages>>(emptyList())
     val savedMessages: StateFlow<List<SavedMessages>> = _savedMessages
@@ -32,6 +36,21 @@ class CommunicationViewModel : ViewModel() {
     
     private val _showRemovedFromFavoritesMessage = MutableStateFlow(false)
     val showRemovedFromFavoritesMessage: StateFlow<Boolean> = _showRemovedFromFavoritesMessage
+    
+    // Voice recognition manager
+    private val voiceRecognitionManager = VoiceRecognitionManager(application.applicationContext)
+    
+    // Recording duration
+    private val _recordingDuration = MutableStateFlow("")
+    val recordingDuration: StateFlow<String> = _recordingDuration
+    
+    // Partial transcription (updates as user speaks)
+    private val _partialTranscription = MutableStateFlow("")
+    val partialTranscription: StateFlow<String> = _partialTranscription
+    
+    // Model initialization status
+    private val _modelInitStatus = MutableStateFlow(ModelInitStatus.NOT_INITIALIZED)
+    val modelInitStatus: StateFlow<ModelInitStatus> = _modelInitStatus
 
     private val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -53,6 +72,76 @@ class CommunicationViewModel : ViewModel() {
                     fetchSavedMessages()
                     fetchFavoriteMessages()
                 }
+            }
+        }
+        
+        // Initialize voice recognition model
+        initializeVoiceRecognition()
+        
+        // Collect recording state
+        viewModelScope.launch {
+            voiceRecognitionManager.isRecording.collect { isRecording ->
+                _isListening.value = isRecording
+            }
+        }
+        
+        // Collect model initialization state
+        viewModelScope.launch {
+            voiceRecognitionManager.isModelInitialized.collect { isInitialized ->
+                if (isInitialized) {
+                    _modelInitStatus.value = ModelInitStatus.INITIALIZED
+                }
+            }
+        }
+        
+        // Collect recording duration
+        viewModelScope.launch {
+            voiceRecognitionManager.recordingDuration.collect { durationInSeconds ->
+                _recordingDuration.value = voiceRecognitionManager.formatDuration(durationInSeconds)
+            }
+        }
+        
+        // Collect partial transcription
+        viewModelScope.launch {
+            voiceRecognitionManager.partialText.collect { partialText ->
+                _partialTranscription.value = partialText
+            }
+        }
+        
+        // Collect final transcription
+        viewModelScope.launch {
+            voiceRecognitionManager.transcribedText.collect { transcribedText ->
+                if (transcribedText.isNotEmpty()) {
+                    _message.value = transcribedText
+                }
+            }
+        }
+    }
+    
+    private fun initializeVoiceRecognition() {
+        viewModelScope.launch {
+            Log.d("CommunicationViewModel", "Starting model initialization...")
+            _modelInitStatus.value = ModelInitStatus.INITIALIZING
+            try {
+                val modelInitialized = voiceRecognitionManager.initModel()
+                if (modelInitialized) {
+                    Log.d("CommunicationViewModel", "Model initialized successfully")
+                    _modelInitStatus.value = ModelInitStatus.INITIALIZED
+                } else {
+                    Log.e("CommunicationViewModel", "Model initialization failed")
+                    _modelInitStatus.value = ModelInitStatus.FAILED
+                    // Schedule a retry after a delay
+                    viewModelScope.launch {
+                        kotlinx.coroutines.delay(3000) // wait 3 seconds
+                        if (_modelInitStatus.value == ModelInitStatus.FAILED) {
+                            Log.d("CommunicationViewModel", "Retrying model initialization...")
+                            initializeVoiceRecognition()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("CommunicationViewModel", "Exception during model initialization: ${e.message}", e)
+                _modelInitStatus.value = ModelInitStatus.FAILED
             }
         }
     }
@@ -79,19 +168,34 @@ class CommunicationViewModel : ViewModel() {
     }
 
     fun startListening() {
-        // Implement your speech-to-text logic here and update _message.value
-        _isListening.value = true
-        // For now, let's simulate an update after a delay
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(2000)
-            _message.value = "This is a transcribed message." // Replace with actual transcription
-            _isListening.value = false
+        Log.d("CommunicationViewModel", "startListening called, model status: ${_modelInitStatus.value}")
+        if (_modelInitStatus.value != ModelInitStatus.INITIALIZED) {
+            // Try to initialize the model again if it failed
+            if (_modelInitStatus.value == ModelInitStatus.FAILED) {
+                Log.d("CommunicationViewModel", "Model initialization previously failed, retrying...")
+                initializeVoiceRecognition()
+            } else {
+                Log.d("CommunicationViewModel", "Model is not initialized yet, current status: ${_modelInitStatus.value}")
+            }
+            return
         }
+        
+        Log.d("CommunicationViewModel", "Starting voice recognition...")
+        voiceRecognitionManager.startRecording()
     }
 
     fun stopListening() {
-        // Implement logic to stop speech-to-text
-        _isListening.value = false
+        Log.d("CommunicationViewModel", "stopListening called")
+        voiceRecognitionManager.stopRecording()
+        
+        // Get the transcribed text and update the message
+        val transcribedText = voiceRecognitionManager.transcribedText.value
+        if (transcribedText.isNotEmpty()) {
+            Log.d("CommunicationViewModel", "Transcribed text: $transcribedText")
+            _message.value = transcribedText
+        } else {
+            Log.d("CommunicationViewModel", "No transcribed text available")
+        }
     }
 
     private fun getCurrentUserId(): String? {
@@ -328,5 +432,13 @@ class CommunicationViewModel : ViewModel() {
         super.onCleared()
         savedMessagesListener?.remove() // Remove listener when ViewModel is cleared
         favoriteMessagesListener?.remove()
+        voiceRecognitionManager.release() // Release voice recognition resources
     }
+}
+
+enum class ModelInitStatus {
+    NOT_INITIALIZED,
+    INITIALIZING,
+    INITIALIZED,
+    FAILED
 }

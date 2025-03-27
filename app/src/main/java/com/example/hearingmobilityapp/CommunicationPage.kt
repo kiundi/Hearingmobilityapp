@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -58,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.gestures.detectTapGestures
+import android.widget.Toast
 
 private const val MAX_CHARACTERS = 500
 
@@ -65,8 +67,11 @@ private const val MAX_CHARACTERS = 500
 fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
     var typedMessage by remember { mutableStateOf("") }
     var displayedMessage by remember { mutableStateOf("") }
-    var isListening by remember { mutableStateOf(false) }
+    val isListening by viewModel.isListening.collectAsState()
+    val recordingDuration by viewModel.recordingDuration.collectAsState()
+    val partialTranscription by viewModel.partialTranscription.collectAsState()
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
 
     var showSavedMessagesScreen by remember { mutableStateOf(false) }
     var isFavorite by remember { mutableStateOf(false) }
@@ -89,6 +94,19 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
             }
         } else {
             isFavorite = false
+        }
+    }
+    
+    // Update displayed message when voice recognition completes
+    LaunchedEffect(viewModel.message.value) {
+        viewModel.message.value?.let { message ->
+            if (message.isNotEmpty()) {
+                displayedMessage = message
+                // Check if the message is a favorite
+                viewModel.isMessageFavorite(message) { isFav ->
+                    isFavorite = isFav
+                }
+            }
         }
     }
 
@@ -231,32 +249,81 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                     .weight(1f), // This makes it take available space and center vertically
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (displayedMessage.isNotEmpty()) displayedMessage else "Message appears here",
-                    color = if (displayedMessage.isNotEmpty()) Color.Black else Color.LightGray,
-                    fontSize = if (displayedMessage.isNotEmpty()) 36.sp else 48.sp,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 44.sp, // Improved line height for better readability
-                    style = TextStyle(
-                        lineBreak = LineBreak.Simple, // Better line breaking
-                        lineHeightStyle = LineHeightStyle(
-                            alignment = LineHeightStyle.Alignment.Center,
-                            trim = LineHeightStyle.Trim.None
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // Show partial transcription if listening
+                    if (isListening && partialTranscription.isNotEmpty()) {
+                        Text(
+                            text = partialTranscription,
+                            color = Color.Gray,
+                            fontSize = 24.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 8.dp)
                         )
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp)
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onLongPress = {
-                                    if (displayedMessage.isNotEmpty() && displayedMessage != "Message appears here") {
-                                        showDeleteDialog = true
-                                    }
-                                }
+                    }
+                    
+                    // Main displayed message
+                    Text(
+                        text = if (displayedMessage.isNotEmpty()) displayedMessage else "Message appears here",
+                        color = if (displayedMessage.isNotEmpty()) Color.Black else Color.LightGray,
+                        fontSize = if (displayedMessage.isNotEmpty()) 36.sp else 48.sp,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 44.sp, // Improved line height for better readability
+                        style = TextStyle(
+                            lineBreak = LineBreak.Simple, // Better line breaking
+                            lineHeightStyle = LineHeightStyle(
+                                alignment = LineHeightStyle.Alignment.Center,
+                                trim = LineHeightStyle.Trim.None
                             )
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onLongPress = {
+                                        if (displayedMessage.isNotEmpty() && displayedMessage != "Message appears here") {
+                                            showDeleteDialog = true
+                                        }
+                                    }
+                                )
+                            }
+                    )
+                    
+                    // Show recording duration if listening
+                    if (isListening) {
+                        Card(
+                            modifier = Modifier
+                                .padding(top = 16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color(0xFFFF9500)
+                            ),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.microphone_icon),
+                                    contentDescription = "Recording",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Recording: $recordingDuration",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
+                            }
                         }
-                )
+                    }
+                }
             }
 
             // Bottom Row: Multi-line TextField and Microphone Button.
@@ -310,7 +377,35 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                         unfocusedBorderColor = Color.LightGray
                     )
                 )
-                IconButton(onClick = { isListening = !isListening }) {
+                IconButton(
+                    onClick = { 
+                        if (isListening) {
+                            viewModel.stopListening()
+                            // When stopping, save the transcribed message
+                            viewModel.message.value?.let { message ->
+                                if (message.isNotEmpty()) {
+                                    displayedMessage = message
+                                    viewModel.saveMessage(message)
+                                }
+                            }
+                            Toast.makeText(context, "Stopped listening", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Check model initialization status
+                            when (viewModel.modelInitStatus.value) {
+                                ModelInitStatus.NOT_INITIALIZED, ModelInitStatus.INITIALIZING -> {
+                                    Toast.makeText(context, "Voice recognition is initializing, please wait...", Toast.LENGTH_LONG).show()
+                                }
+                                ModelInitStatus.FAILED -> {
+                                    Toast.makeText(context, "Voice recognition initialization failed. Retrying...", Toast.LENGTH_LONG).show()
+                                }
+                                ModelInitStatus.INITIALIZED -> {
+                                    Toast.makeText(context, "Starting voice recognition...", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            viewModel.startListening()
+                        }
+                    }
+                ) {
                     Icon(
                         painter = painterResource(id = R.drawable.microphone_icon),
                         contentDescription = "Microphone",

@@ -105,6 +105,7 @@ dependencies {
     implementation(libs.androidx.ui.test.android)
     implementation(libs.openai.client) // Use the latest version
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.vosk) // Added Vosk for speech recognition
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
