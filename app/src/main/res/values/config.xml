@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nominatim_base_url">https://nominatim.openstreetmap.org</string>
+    <string name="places_api_base_url">https://maps.googleapis.com/maps/api/place</string>
+</resources>
