@@ -291,4 +291,29 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
     override fun onTimeout() {
         Log.d(TAG, "Recognition timeout")
     }
+
+
+    fun release() {
+        Log.d(TAG, "Releasing resources in VoiceRecognitionManager")
+
+        // Stop the speech service if it's running
+        speechService?.stop()
+        speechService = null
+
+        // Release the model if it's initialized
+        model?.close()
+        model = null
+
+        // Reset state flows
+        _isRecording.value = false
+        _transcribedText.value = ""
+        _partialText.value = ""
+        _recordingDuration.value = 0
+        _isModelInitialized.value = false
+
+        // Remove any pending callbacks
+        handler.removeCallbacks(updateTimer)
+
+        Log.d(TAG, "Resources released successfully")
+    }
 }
