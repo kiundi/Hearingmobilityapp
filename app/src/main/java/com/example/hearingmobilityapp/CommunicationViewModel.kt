@@ -1,26 +1,30 @@
 package com.example.hearingmobilityapp
 
 import android.app.Application
+import android.content.ContentValues.TAG
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import android.util.Log
+import kotlinx.coroutines.delay
 
 data class SavedMessages(val id: String, val text: String, val isFavorite: Boolean = false)
 
 class CommunicationViewModel(application: Application) : AndroidViewModel(application) {
     private val _message = MutableLiveData<String>()
     val message: LiveData<String> = _message
+
+    companion object {
+        private const val TAG = "CommunicationViewModel"
+    }
 
     private val _isListening = MutableStateFlow(false)
     val isListening: StateFlow<Boolean> = _isListening
@@ -185,16 +189,25 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun stopListening() {
-        Log.d("CommunicationViewModel", "stopListening called")
-        voiceRecognitionManager.stopRecording()
-        
-        // Get the transcribed text and update the message
-        val transcribedText = voiceRecognitionManager.transcribedText.value
-        if (transcribedText.isNotEmpty()) {
-            Log.d("CommunicationViewModel", "Transcribed text: $transcribedText")
-            _message.value = transcribedText
-        } else {
-            Log.d("CommunicationViewModel", "No transcribed text available")
+        viewModelScope.launch {
+            Log.d(TAG, "stopListening called")
+            voiceRecognitionManager.stopRecording()
+
+            // Wait briefly for final transcription
+            delay(500)
+
+            val transcribedText = voiceRecognitionManager.transcribedText.value
+            Log.d(TAG, "Retrieved transcribed text: '$transcribedText'")
+
+            if (transcribedText.isNotEmpty()) {
+                // Treat transcribed text as a new message
+                updateMessage(transcribedText)
+                Log.d(TAG, "Updated message with transcribed text")
+            } else {
+                Log.e(TAG, "No transcribed text available")
+            }
+
+            _isListening.value = false
         }
     }
 

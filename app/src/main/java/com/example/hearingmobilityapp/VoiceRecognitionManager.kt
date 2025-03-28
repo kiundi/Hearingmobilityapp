@@ -1,9 +1,16 @@
 package com.example.hearingmobilityapp
 
 import android.content.Context
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,6 +21,10 @@ import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
 import java.io.File
 import java.io.IOException
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+
 
 /**
  * Manager class for handling voice recognition using Vosk
@@ -23,6 +34,10 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
         private const val TAG = "VoiceRecognitionManager"
         private const val SAMPLE_RATE = 16000
     }
+
+    private var recorder: AudioRecord? = null
+    private var recordingJob: Job? = null
+    private var bufferSize: Int = 0
 
     // Speech recognition service
     private var speechService: SpeechService? = null
@@ -114,6 +129,15 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
             return@withContext false
         }
     }
+
+    private fun processAudio(data: ByteArray) {
+        Log.d(TAG, "Processing audio chunk: size=${data.size}, first few bytes=${data.take(4)}")
+        try {
+            speechService?.feedAudioConten(data)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing audio: ${e.message}", e)
+        }
+    }
     
     /**
      * Verify that the model directory has the required structure and files
@@ -152,63 +176,67 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
      * Start recording and recognizing speech
      */
     fun startRecording() {
-        Log.d(TAG, "startRecording called. Current state: recording=${_isRecording.value}, model initialized=${_isModelInitialized.value}")
+        Log.d(TAG, "startRecording called")
         if (_isRecording.value || !_isModelInitialized.value) {
             Log.d(TAG, "Cannot start recording: recording=${_isRecording.value}, model initialized=${_isModelInitialized.value}")
             return
         }
-        
+
+        // Check permission
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "RECORD_AUDIO permission not granted")
+            throw SecurityException("RECORD_AUDIO permission not granted")
+        }
+
         try {
+            // Initialize audio recorder
+            bufferSize = AudioRecord.getMinBufferSize(
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+
+            recorder = AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize
+            )
+
+            Log.d(TAG, "Audio parameters - Sample rate: $SAMPLE_RATE, Buffer size: $bufferSize")
+            Log.d(TAG, "Recorder state: ${recorder?.state}")
+
             // Create recognizer
             Log.d(TAG, "Creating recognizer with model at ${context.filesDir}/model")
             val recognizer = Recognizer(model, SAMPLE_RATE.toFloat())
-            
+
             // Start speech service
             speechService = SpeechService(recognizer, SAMPLE_RATE.toFloat())
             speechService?.startListening(this)
-            
+
             // Reset values
             _transcribedText.value = ""
             _partialText.value = ""
             durationInSeconds = 0
             _recordingDuration.value = 0
-            
+
             // Update recording state
             _isRecording.value = true
-            
+
+            // Start audio processing
+            startAudioProcessing()
+
             // Start timer
             handler.post(updateTimer)
-            
+
             Log.d(TAG, "Started recording successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start recording: ${e.message}", e)
-        }
-    }
-
-    /**
-     * Stop recording and finalize transcription
-     */
-    fun stopRecording() {
-        Log.d(TAG, "stopRecording called. Current state: recording=${_isRecording.value}")
-        if (!_isRecording.value) {
-            Log.d(TAG, "Not recording, nothing to stop")
-            return
-        }
-        
-        try {
-            // Stop speech service
-            speechService?.stop()
-            speechService = null
-            
-            // Update recording state
-            _isRecording.value = false
-            
-            // Stop timer
-            handler.removeCallbacks(updateTimer)
-            
-            Log.d(TAG, "Stopped recording. Final transcription: ${_transcribedText.value}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping recording: ${e.message}", e)
+            release()
         }
     }
 
@@ -266,21 +294,75 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
     }
 
     override fun onFinalResult(hypothesis: String?) {
+        Log.d(TAG, "onFinalResult received hypothesis: $hypothesis")
         hypothesis?.let {
             try {
-                // Extract final text from JSON response
                 val jsonResult = org.json.JSONObject(it)
                 val text = jsonResult.optString("text", "")
+                Log.d(TAG, "Parsed final text: '$text'")
                 if (text.isNotEmpty()) {
                     _transcribedText.value = text
+                    Log.d(TAG, "Updated transcribed text state flow with: '$text'")
                 } else {
                     _transcribedText.value = ""
+                    Log.e(TAG, "Empty text received in final result")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error parsing final result: ${e.message}")
+                Log.e(TAG, "Error parsing final result: ${e.message}", e)
             }
         } ?: run {
+            Log.e(TAG, "Null hypothesis received in final result")
             _transcribedText.value = ""
+        }
+    }
+
+    private fun startAudioProcessing() {
+        recordingJob = CoroutineScope(Dispatchers.IO).launch {
+            val buffer = ByteArray(bufferSize)
+            var gain = 2.0f  // Amplification factor
+
+            while (isActive && isRecording.value) {
+                val bytesRead = recorder?.read(buffer, 0, bufferSize) ?: -1
+                if (bytesRead > 0) {
+                    // Amplify the audio
+                    for (i in 0 until bytesRead step 2) {
+                        val sample = (buffer[i+1].toInt() shl 8) or (buffer[i].toInt() and 0xFF)
+                        val amplified = (sample * gain).toInt().coerceIn(-32768, 32767)
+                        buffer[i] = (amplified and 0xFF).toByte()
+                        buffer[i+1] = (amplified shr 8).toByte()
+                    }
+                    processAudio(buffer)
+                }
+            }
+        }
+    }
+
+    fun stopRecording() {
+        Log.d(TAG, "stopRecording called. Current state: recording=${_isRecording.value}")
+        if (!_isRecording.value) return
+
+        try {
+            // Stop and release audio recorder
+            recorder?.stop()
+            recorder?.release()
+            recorder = null
+
+            // Cancel recording job
+            recordingJob?.cancel()
+            recordingJob = null
+
+            speechService?.let { service ->
+                Log.d(TAG, "Stopping speech service")
+                service.stop()
+            }
+
+            speechService = null
+            _isRecording.value = false
+            handler.removeCallbacks(updateTimer)
+
+            Log.d(TAG, "Recording stopped. Final transcribed text: '${_transcribedText.value}'")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping recording: ${e.message}", e)
         }
     }
 
@@ -295,6 +377,15 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
 
     fun release() {
         Log.d(TAG, "Releasing resources in VoiceRecognitionManager")
+
+        // Stop and release audio recorder
+        recorder?.stop()
+        recorder?.release()
+        recorder = null
+
+        // Cancel recording job
+        recordingJob?.cancel()
+        recordingJob = null
 
         // Stop the speech service if it's running
         speechService?.stop()
