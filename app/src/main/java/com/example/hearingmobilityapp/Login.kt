@@ -34,6 +34,7 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    var isAnonymousLoading by remember { mutableStateOf(false) }
     
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
@@ -124,7 +125,7 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp),
-            enabled = !isLoading
+            enabled = !isLoading && !isAnonymousLoading
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
@@ -133,6 +134,43 @@ fun LoginScreen(
                 )
             } else {
                 Text("Log In")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Anonymous Sign In Button
+        OutlinedButton(
+            onClick = {
+                isAnonymousLoading = true
+                errorMessage = ""
+                scope.launch {
+                    when (val result = userViewModel.signInAnonymously()) {
+                        is AuthResult.Success -> {
+                            Log.d("Login", "Successfully logged in anonymously")
+                            navController.navigate("main") {
+                                popUpTo("login") { inclusive = true }
+                            }
+                        }
+                        is AuthResult.Error -> {
+                            errorMessage = result.message
+                            isAnonymousLoading = false
+                        }
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            enabled = !isLoading && !isAnonymousLoading
+        ) {
+            if (isAnonymousLoading) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colors.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+            } else {
+                Text("Continue as Guest")
             }
         }
 

@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -26,7 +27,14 @@ sealed class AuthResult {
 
 class UserViewModel : ViewModel() {
     private val auth = FirebaseAuth.getInstance()
-    private val db = FirebaseFirestore.getInstance()
+    private val db: FirebaseFirestore = FirebaseFirestore.getInstance().apply {
+        // Enable offline persistence
+        val settings = FirebaseFirestoreSettings.Builder()
+            .setPersistenceEnabled(true)
+            .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
+            .build()
+        firestoreSettings = settings
+    }
     
     private val _currentUser = MutableStateFlow<UserData?>(null)
     val currentUser: StateFlow<UserData?> = _currentUser
@@ -50,9 +58,34 @@ class UserViewModel : ViewModel() {
                     email = userDoc.getString("email") ?: "",
                     provider = userDoc.getString("provider") ?: "emailPassword"
                 )
+            } else {
+                // Create a basic user profile if document doesn't exist
+                val basicUserData = UserData(
+                    uid = firebaseUser.uid,
+                    name = firebaseUser.displayName ?: "",
+                    email = firebaseUser.email ?: ""
+                )
+                _currentUser.value = basicUserData
+                
+                // Try to save this basic profile to Firestore
+                try {
+                    db.collection("users").document(firebaseUser.uid)
+                        .set(basicUserData)
+                } catch (e: Exception) {
+                    Log.w("UserViewModel", "Couldn't save basic profile while offline", e)
+                }
             }
         } catch (e: Exception) {
-            Log.e("UserViewModel", "Error loading user data", e)
+            Log.e("UserViewModel", "Error loading user data (Ask Gemini)", e)
+            
+            // Even if we can't load from Firestore, create a basic user from auth
+            auth.currentUser?.let { user ->
+                _currentUser.value = UserData(
+                    uid = user.uid,
+                    name = user.displayName ?: "",
+                    email = user.email ?: ""
+                )
+            }
         }
     }
 
@@ -115,7 +148,34 @@ class UserViewModel : ViewModel() {
             AuthResult.Success
         } catch (e: Exception) {
             Log.e("UserViewModel", "Sign in error", e)
-            AuthResult.Error(e.message ?: "Sign in failed")
+            AuthResult.Error("Sign in failed. Please check your internet connection and try again.")
+        }
+    }
+    
+    suspend fun signInAnonymously(): AuthResult {
+        return try {
+            val result = auth.signInAnonymously().await()
+            result.user?.let { firebaseUser ->
+                val userData = UserData(
+                    uid = firebaseUser.uid,
+                    name = "Guest User",
+                    email = "",
+                    provider = "anonymous"
+                )
+                _currentUser.value = userData
+                
+                // Try to store user data in Firestore
+                try {
+                    db.collection("users").document(firebaseUser.uid)
+                        .set(userData)
+                } catch (e: Exception) {
+                    Log.w("UserViewModel", "Couldn't save anonymous user while offline", e)
+                }
+            }
+            AuthResult.Success
+        } catch (e: Exception) {
+            Log.e("UserViewModel", "Anonymous sign in error", e)
+            AuthResult.Error("Anonymous sign in failed. Please try again later.")
         }
     }
 
