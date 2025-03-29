@@ -72,6 +72,8 @@ class TripDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_
 }
 
 class TripDetailsViewModel(private val context: Context) : ViewModel() {
+    private val _routePoints = MutableStateFlow<List<GeoPoint>>(emptyList())
+    val routePoints: StateFlow<List<GeoPoint>> = _routePoints.asStateFlow()
     private val dbHelper = TripDatabaseHelper(context)
     private val transitRouter = TransitRouter(context)
     private val gtfsHelper = GTFSHelper(context)
@@ -644,3 +646,4 @@ enum class TrafficCondition {
     MODERATE,   // Moderate traffic, slightly slower
     HEAVY       // Heavy traffic, significantly slower
 }
+
