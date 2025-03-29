@@ -572,6 +572,12 @@ private val locationMap = mutableMapOf<String, Location>().apply {
 }
 
 private fun getCoordinatesForLocation(location: String): Pair<Double, Double> {
+    // Handle special cases that might cause parsing errors
+    if (location.contains("ZONE", ignoreCase = true)) {
+        // Return default coordinates for Nairobi if location contains ZONE
+        return Pair(-1.286389, 36.817223)
+    }
+    
     // Convert input to lowercase for case-insensitive matching
     val normalizedLocation = location.trim().lowercase()
 
@@ -583,6 +589,7 @@ private fun getCoordinatesForLocation(location: String): Pair<Double, Double> {
 
         Pair(coordinates.latitude, coordinates.longitude)
     } catch (e: Exception) {
+        Log.e("NavigationScreen", "Error getting coordinates for $location: ${e.message}")
         // Return default coordinates for Nairobi if there's any error
         Pair(-1.286389, 36.817223)
     }
