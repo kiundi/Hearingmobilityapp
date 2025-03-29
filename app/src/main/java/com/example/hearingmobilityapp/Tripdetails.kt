@@ -172,6 +172,11 @@ fun TripDetailsScreen(
     val locationManager = remember { context.getSystemService(Context.LOCATION_SERVICE) as LocationManager }
     var destinationPoint by remember { mutableStateOf(GeoPoint(-1.2858, 36.8219)) }
 
+        // Constants for permissions
+    val VIBRATION_PERMISSION_REQUEST_CODE = 101
+    val LOCATION_UPDATE_INTERVAL = 1000L // 1 second for more responsive haptic feedback
+    val LOCATION_MIN_DISTANCE = 1f // 1 meter minimum distance for updates
+    
     // Real-time navigation state
     var navigationStarted by remember { mutableStateOf(false) }
     var routePoints by remember { mutableStateOf(listOf<GeoPoint>()) }
@@ -181,26 +186,60 @@ fun TripDetailsScreen(
     var isFavoriteRoute by remember { mutableStateOf(false) }
     var showDirections by remember { mutableStateOf(false) }
 
-    // Enhanced Haptic Feedback Function
-    fun triggerHapticAlert(pattern: LongArray = longArrayOf(0, 200, 100, 300)) {
+    // Enhanced Haptic Feedback Function with logging and user feedback
+    fun triggerHapticAlert(pattern: LongArray = longArrayOf(0, 200, 100, 300), description: String = "Alert") {
         try {
-            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            Log.d("TripDetails", "Attempting to trigger haptic feedback: $description")
+            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            
+            if (vibrator == null) {
+                Log.e("TripDetails", "Failed to get vibrator service")
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Device doesn't support vibration")
+                }
+                return
+            }
 
+            // Check and request vibration permission if needed
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.VIBRATE) != PackageManager.PERMISSION_GRANTED) {
-                Log.w("TripDetails", "Vibration permission not granted")
+                Log.w("TripDetails", "Vibration permission not granted, requesting...")
+                ActivityCompat.requestPermissions(
+                    context as android.app.Activity,
+                    arrayOf(Manifest.permission.VIBRATE),
+                    101 // Vibration permission request code
+                )
                 return
             }
 
             if (vibrator.hasVibrator()) {
+                Log.d("TripDetails", "Device has vibrator, triggering pattern: ${pattern.joinToString()}")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+                    // For Android 8.0 (API 26) and above
+                    val effect = VibrationEffect.createWaveform(pattern, -1)
+                    vibrator.vibrate(effect)
+                    Log.d("TripDetails", "Vibration triggered using modern API")
                 } else {
+                    // For older versions
                     @Suppress("DEPRECATION")
                     vibrator.vibrate(pattern, -1)
+                    Log.d("TripDetails", "Vibration triggered using legacy API")
+                }
+                
+                // Show a brief toast or snackbar to confirm vibration
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("$description haptic feedback triggered")
+                }
+            } else {
+                Log.w("TripDetails", "Device reports it has no vibrator")
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Device doesn't support vibration")
                 }
             }
         } catch (e: Exception) {
-            Log.e("TripDetails", "Error in haptic feedback: ${e.message}")
+            Log.e("TripDetails", "Error in haptic feedback: ${e.message}", e)
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("Failed to trigger haptic feedback: ${e.message}")
+            }
         }
     }
 
@@ -308,16 +347,50 @@ fun TripDetailsScreen(
     LaunchedEffect(selectedArea) {
         navigationStarted = true
 
-        // Update destination based on selected area
-        destinationPoint = when(selectedArea.lowercase()) {
+        // Use the destination from the locationData
+        destinationPoint = locationData?.let {
+            GeoPoint(it.destLat, it.destLong)
+        } ?: when(selectedArea.lowercase()) {
             "hospital" -> GeoPoint(-1.2894, 36.8248)  // Example hospital location
             "school" -> GeoPoint(-1.2905, 36.8170)    // Example school location
             "market" -> GeoPoint(-1.2836, 36.8210)    // Example market location
             else -> GeoPoint(-1.2858, 36.8219)        // Default destination
         }
 
-        // Generate route points
-        routePoints = simulateRouting(currentLocation, destinationPoint)
+        // Get the actual transit route from TransitRouter
+        val transitRouter = TransitRouter(context)
+        val transitRouteResult = transitRouter.findTransitRoute(currentLocation, destinationPoint)
+        
+        // Extract route points from the transit route
+        if (transitRouteResult != null) {
+            val allPoints = mutableListOf<GeoPoint>()
+            
+            // Add points from walk to first stop if available
+            transitRouteResult.walkToFirstStop?.let { walkRoute ->
+                allPoints.addAll(walkRoute.getPoints())
+            }
+            
+            // Add points from transit segments
+            transitRouteResult.transitPath.forEach { transitSegment ->
+                allPoints.addAll(transitSegment.getPoints())
+            }
+            
+            // Add points from walk from last stop if available
+            transitRouteResult.walkFromLastStop?.let { walkRoute ->
+                allPoints.addAll(walkRoute.getPoints())
+            }
+            
+            // If we have points from the transit route, use them
+            if (allPoints.isNotEmpty()) {
+                routePoints = allPoints
+            } else {
+                // Fallback to simulated routing if transit route has no points
+                routePoints = simulateRouting(currentLocation, destinationPoint)
+            }
+        } else {
+            // Fallback to simulated routing if transit route is null
+            routePoints = simulateRouting(currentLocation, destinationPoint)
+        }
 
         // Generate directions
         val directions = generateDirections(routePoints)
@@ -337,7 +410,21 @@ fun TripDetailsScreen(
         tripDetailsViewModel.updateEstimatedTime((results[0] / 1000 * 3).toInt()) // 3 minutes per km
     }
 
-    // Location Tracking
+    // Constants already defined at the top of the function
+    
+    // Request necessary permissions when the screen is first displayed
+    LaunchedEffect(Unit) {
+        // Request vibration permission explicitly
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.VIBRATE) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                context as android.app.Activity,
+                arrayOf(Manifest.permission.VIBRATE),
+                101 // Vibration permission request code
+            )
+        }
+    }
+    
+    // Location Tracking with improved update frequency
     LaunchedEffect(navigationStarted) {
         if (!navigationStarted) return@LaunchedEffect
 
@@ -346,8 +433,11 @@ fun TripDetailsScreen(
                 // Update current location
                 tripDetailsViewModel.updateLocation(location)
 
-                // Recalculate route and distance
-                routePoints = simulateRouting(currentLocation, destinationPoint)
+                // Recalculate route and distance only if we're using simulated routing
+                // If we have a transit route, we don't need to recalculate the route
+                if (routePoints.size <= 2) {
+                    routePoints = simulateRouting(currentLocation, destinationPoint)
+                }
 
                 // Update directions
                 val directions = generateDirections(routePoints)
@@ -377,14 +467,21 @@ fun TripDetailsScreen(
                 tripDetailsViewModel.updateDistance(results[0])
                 tripDetailsViewModel.updateEstimatedTime((distanceToDestination / 1000 * 3).toInt())
 
-                // Proximity alerts
+                // Enhanced proximity alerts with better descriptions and logging
                 when {
                     distanceToDestination <= 50 -> {
-                        triggerHapticAlert(longArrayOf(0, 100, 50, 100, 50, 100))  // Arrival
+                        Log.d("TripDetails", "Arrival alert triggered at distance: $distanceToDestination meters")
+                        triggerHapticAlert(longArrayOf(0, 100, 50, 100, 50, 100), "Arrival")  // Arrival pattern
                         nextDirection = "You have arrived at your destination!"
                     }
-                    distanceToDestination <= 200 -> triggerHapticAlert(longArrayOf(0, 100, 50, 100))  // Urgent
-                    distanceToDestination <= 500 -> triggerHapticAlert()  // Warning
+                    distanceToDestination <= 200 -> {
+                        Log.d("TripDetails", "Urgent alert triggered at distance: $distanceToDestination meters")
+                        triggerHapticAlert(longArrayOf(0, 100, 50, 100), "Approaching destination")  // Urgent pattern
+                    }
+                    distanceToDestination <= 500 -> {
+                        Log.d("TripDetails", "Warning alert triggered at distance: $distanceToDestination meters")
+                        triggerHapticAlert(longArrayOf(0, 200, 100, 300), "Getting closer")  // Warning pattern
+                    }
                 }
             }
 
@@ -396,7 +493,7 @@ fun TripDetailsScreen(
         try {
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
                 PackageManager.PERMISSION_GRANTED) {
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 1f, locationListener)
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, locationListener)
             } else {
                 Log.w("TripDetails", "Location permission not granted")
             }
@@ -539,6 +636,28 @@ fun TripDetailsScreen(
                 calendar.add(Calendar.MINUTE, estimatedTimeMinutes)
                 SimpleDateFormat("HH:mm", Locale.getDefault()).format(calendar.time)
             }
+            
+            // Add test button for haptic feedback
+            Button(
+                onClick = { 
+                    // Test all haptic patterns
+                    triggerHapticAlert(longArrayOf(0, 200, 100, 300), "Standard") 
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF6200EE)
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = "Test Haptic Feedback",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
