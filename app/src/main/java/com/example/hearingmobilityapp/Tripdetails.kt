@@ -518,7 +518,13 @@ fun TripDetailsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Back button
-                IconButton(onClick = { navController?.popBackStack() }) {
+                IconButton(onClick = { 
+                    // Navigate to the Navigation screen instead of just popping back
+                    navController?.navigate(Screen.Navigation.route) {
+                        // Clear the back stack up to the Navigation screen
+                        popUpTo(Screen.Navigation.route) { inclusive = false }
+                    }
+                }) {
                     Icon(
                         imageVector = Icons.Default.ArrowBack,
                         contentDescription = "Back",
@@ -898,8 +904,8 @@ fun OSMDroidMap(
                 controller.setZoom(15.0)
                 clipToOutline = true  // ensure this view is clipped to its outline
 
-                // Set initial position to Nairobi
-                controller.setCenter(GeoPoint(-1.286389, 36.817223))
+                // Set initial position to the source location if available, otherwise use Nairobi
+                controller.setCenter(currentLocation)
 
                 mapView = this
             }
@@ -942,9 +948,47 @@ fun OSMDroidMap(
             mapView.overlays.add(routeLine)
         }
 
-        // Center map to show both markers
-        val boundingBox = BoundingBox.fromGeoPoints(listOf(currentLocation, destination))
-        mapView.zoomToBoundingBox(boundingBox.increaseByScale(1.2f), true)
+        // Center map to show both markers with proper bounds check
+        try {
+            // Make sure we have valid coordinates before creating a bounding box
+            if (currentLocation.latitude != 0.0 && currentLocation.longitude != 0.0 &&
+                destination.latitude != 0.0 && destination.longitude != 0.0) {
+                
+                // Use a more reliable method to create bounding box
+                val minLat = Math.min(currentLocation.latitude, destination.latitude)
+                val maxLat = Math.max(currentLocation.latitude, destination.latitude)
+                val minLon = Math.min(currentLocation.longitude, destination.longitude)
+                val maxLon = Math.max(currentLocation.longitude, destination.longitude)
+                
+                // Add some padding to the bounding box
+                val latPadding = (maxLat - minLat) * 0.3
+                val lonPadding = (maxLon - minLon) * 0.3
+                
+                val boundingBox = BoundingBox(
+                    maxLat + latPadding,
+                    maxLon + lonPadding,
+                    minLat - latPadding,
+                    minLon - lonPadding
+                )
+                
+                // Apply the bounding box with animation
+                mapView.zoomToBoundingBox(boundingBox, true, 100)
+                
+                // Ensure we're not zoomed out too far
+                if (mapView.zoomLevelDouble < 10) {
+                    mapView.controller.setZoom(15.0)
+                }
+            } else {
+                // If we have invalid coordinates, just center on the current location with a default zoom
+                mapView.controller.setCenter(currentLocation)
+                mapView.controller.setZoom(15.0)
+            }
+        } catch (e: Exception) {
+            Log.e("TripDetails", "Error setting map bounds: ${e.message}")
+            // Fallback to a simple center on current location
+            mapView.controller.setCenter(currentLocation)
+            mapView.controller.setZoom(15.0)
+        }
 
         mapView.invalidate()
     }
