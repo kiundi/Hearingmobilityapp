@@ -316,7 +316,7 @@ fun TripDetailsScreen(
                 // Add some randomness to make the route look more natural
                 val latOffset = (Math.random() * 0.001 - 0.0005) * (if (Math.random() > 0.5) 1 else -1)
                 val lonOffset = (Math.random() * 0.001 - 0.0005) * (if (Math.random() > 0.5) 1 else -1)
-                
+
                 val midPoint = GeoPoint(midLat + latOffset, midLon + lonOffset)
                 
                 // Generate first half of the route (start to midpoint) - simplified to reduce computation
@@ -331,10 +331,10 @@ fun TripDetailsScreen(
                         start.longitude + (midPoint.longitude - start.longitude) * progress + randomLon
                     ))
                 }
-                
+
                 // Add the midpoint
                 points.add(midPoint)
-                
+
                 // Generate second half of the route (midpoint to end) - simplified to reduce computation
                 for (i in 1 until numberOfPoints / 2) {
                     val progress = i.toFloat() / (numberOfPoints / 2)
@@ -902,7 +902,7 @@ fun OSMDroidMap(
             mapView?.onDetach()
         }
     }
-    
+
     AndroidView(
         factory = { ctx ->
             MapView(ctx).apply {
@@ -964,29 +964,29 @@ fun OSMDroidMap(
                 // Make sure we have valid coordinates before creating a bounding box
                 if (currentLocation.latitude != 0.0 && currentLocation.longitude != 0.0 &&
                     destination.latitude != 0.0 && destination.longitude != 0.0) {
-                    
+
                     // Use a more reliable method to create bounding box
                     val minLat = Math.min(currentLocation.latitude, destination.latitude)
                     val maxLat = Math.max(currentLocation.latitude, destination.latitude)
                     val minLon = Math.min(currentLocation.longitude, destination.longitude)
                     val maxLon = Math.max(currentLocation.longitude, destination.longitude)
-                    
+
                     // Add some padding to the bounding box
                     val latPadding = (maxLat - minLat) * 0.3
                     val lonPadding = (maxLon - minLon) * 0.3
-                    
+
                     val boundingBox = BoundingBox(
                         maxLat + latPadding,
                         maxLon + lonPadding,
                         minLat - latPadding,
                         minLon - lonPadding
                     )
-                    
+
                     // Apply the bounding box with animation - on main thread but after computation
                     withContext(Dispatchers.Main) {
                         // Use a shorter animation duration to prevent ANR
                         mapView.zoomToBoundingBox(boundingBox, true, 50)
-                        
+
                         // Ensure we're not zoomed out too far
                         if (mapView.zoomLevelDouble < 10) {
                             mapView.controller.setZoom(15.0)
