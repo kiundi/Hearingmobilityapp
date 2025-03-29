@@ -53,6 +53,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -984,7 +985,7 @@ fun TripSummary(
                         .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
+                    /*Icon(
                         painter = painterResource(
                             id = when (trafficCondition) {
                                 TrafficCondition.LIGHT -> R.drawable.ic_traffic_light
@@ -1001,7 +1002,7 @@ fun TripSummary(
                             else -> Color.Gray
                         },
                         modifier = Modifier.size(24.dp)
-                    )
+                    )*/
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = when (trafficCondition) {

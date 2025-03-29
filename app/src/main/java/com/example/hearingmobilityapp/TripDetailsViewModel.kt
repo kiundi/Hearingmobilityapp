@@ -10,16 +10,20 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.overlay.Polyline
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
+
 
 class TripDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
     companion object {
@@ -271,7 +275,7 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
         // Simulate random traffic conditions every 30-60 seconds
         viewModelScope.launch {
             while (isActive && _navigationState.value.status == "active") {
-                delay(Random().nextInt(30000) + 30000L) // 30-60 seconds
+                delay(Random.nextInt(30000) + 30000L) // 30-60 seconds
                 simulateTrafficConditions()
             }
         }
@@ -574,7 +578,7 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
      */
     private fun simulateTrafficConditions() {
         // Simulate traffic conditions changing
-        val random = Random().nextInt(100)
+        val random = Random.nextInt(100)
         _trafficCondition.value = when {
             random < 20 -> TrafficCondition.LIGHT
             random < 60 -> TrafficCondition.NORMAL
@@ -630,7 +634,8 @@ data class NavigationState(
     val distanceToNextStop: Int? = null,
     val isWeekend: Boolean = false,
     val weekendMessage: String? = null,
-    val trafficCondition: TrafficCondition = TrafficCondition.NORMAL
+    val trafficCondition: TrafficCondition = TrafficCondition.NORMAL,
+    val errorMessage: String? = null
 )
 
 enum class TrafficCondition {
