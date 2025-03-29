@@ -91,6 +91,24 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
     private val _realtimeUpdates = MutableStateFlow(false)
     val realtimeUpdates: StateFlow<Boolean> = _realtimeUpdates
     
+    private val _isWeekend = MutableStateFlow(false)
+    val isWeekend: StateFlow<Boolean> = _isWeekend
+    
+    // Real-time distance and ETA tracking
+    private val _remainingDistance = MutableStateFlow(0.0f)
+    val remainingDistance: StateFlow<Float> = _remainingDistance
+    
+    private val _currentEta = MutableStateFlow(0)
+    val currentEta: StateFlow<Int> = _currentEta
+    
+    private val _averageSpeed = MutableStateFlow(0.0f) // in meters per second
+    private val _lastLocationUpdateTime = MutableStateFlow(0L)
+    private val _lastLocation = MutableStateFlow<GeoPoint?>(null)
+    
+    // Traffic conditions (simulated)
+    private val _trafficCondition = MutableStateFlow(TrafficCondition.NORMAL)
+    val trafficCondition: StateFlow<TrafficCondition> = _trafficCondition
+    
     private var realtimeUpdateHandler: Handler? = null
     private var realtimeUpdateRunnable: Runnable? = null
 
@@ -103,6 +121,9 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
     ) {
         viewModelScope.launch {
             try {
+                // Check if today is a weekend and update the state
+                _isWeekend.value = gtfsHelper.isWeekend()
+                
                 // Find transit route using GTFS data
                 val transitRouteResult = withContext(Dispatchers.IO) {
                     transitRouter.findTransitRoute(sourceLocation, destinationLocation)
@@ -114,6 +135,11 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
                     // Create a simple direct route
                     val directRoute = createDirectRoute(sourceLocation, destinationLocation)
                     _transitRoute.value = directRoute
+                    
+                    // Add weekend message if applicable
+                    if (_isWeekend.value) {
+                        Log.i("TripDetailsViewModel", "Weekend service may be limited or unavailable")
+                    }
                 } else {
                     _transitRoute.value = transitRouteResult
                     
@@ -137,6 +163,11 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
                     tripId = _transitRoute.value?.tripDetails?.let { gtfsHelper.getTripIdForRoute(it.routeId) }
                 )
 
+                // Create weekend message if applicable
+                val weekendMsg = if (_isWeekend.value) {
+                    "Weekend service in effect. Schedules and frequency may differ from weekday service."
+                } else null
+                
                 _navigationState.value = NavigationState(
                     currentLocation = sourceLocation,
                     destinationLocation = destinationLocation,
@@ -147,7 +178,9 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
                     status = "active",
                     nextStop = _nextStop.value?.stopName,
                     routeName = _transitRoute.value?.tripDetails?.routeName,
-                    tripHeadsign = _transitRoute.value?.tripDetails?.tripHeadsign
+                    tripHeadsign = _transitRoute.value?.tripDetails?.tripHeadsign,
+                    isWeekend = _isWeekend.value,
+                    weekendMessage = weekendMsg
                 )
 
                 val db = dbHelper.writableDatabase
@@ -168,7 +201,9 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
                     distance = calculateDistance(sourceLocation, destinationLocation),
                     estimatedTime = calculateEstimatedTime(sourceLocation, destinationLocation),
                     status = "error",
-                    errorMessage = "Could not start navigation: ${e.message}"
+                    errorMessage = "Could not start navigation: ${e.message}",
+                    isWeekend = _isWeekend.value,
+                    weekendMessage = if (_isWeekend.value) "Weekend service in effect." else null
                 )
             }
         }
@@ -220,9 +255,26 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
     }
 
     private fun startTripTracking(tripId: String) {
-        // This would update the current location in the database periodically
-        // For now, we'll just log that tracking has started
         Log.d("TripDetailsViewModel", "Started tracking trip $tripId")
+        
+        // Initialize tracking variables
+        _lastLocationUpdateTime.value = System.currentTimeMillis()
+        _lastLocation.value = _currentLocation.value
+        
+        // Set initial distance
+        updateRemainingDistance()
+        
+        // Set initial ETA based on schedule or estimate
+        val initialEta = _navigationState.value.estimatedTime
+        _currentEta.value = initialEta
+        
+        // Simulate random traffic conditions every 30-60 seconds
+        viewModelScope.launch {
+            while (isActive && _navigationState.value.status == "active") {
+                delay(Random().nextInt(30000) + 30000L) // 30-60 seconds
+                simulateTrafficConditions()
+            }
+        }
     }
     
     private fun startRealtimeUpdates() {
@@ -234,7 +286,10 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
         realtimeUpdateRunnable = object : Runnable {
             override fun run() {
                 updateRealtimeData()
-                realtimeUpdateHandler?.postDelayed(this, 10000) // Update every 10 seconds
+                // Update remaining distance and ETA with each real-time update
+                updateRemainingDistance()
+                updateRealTimeEta()
+                realtimeUpdateHandler?.postDelayed(this, 5000) // Update every 5 seconds for more responsive UI
             }
         }
         
@@ -307,12 +362,41 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
         
         // Update current location
         val newLocation = GeoPoint(location.latitude, location.longitude)
+        val previousLocation = _currentLocation.value
         _currentLocation.value = newLocation
+        
+        // Calculate time since last update
+        val currentTime = System.currentTimeMillis()
+        val timeDelta = currentTime - _lastLocationUpdateTime.value
+        
+        // Only process if we have a meaningful time difference (avoid division by zero)
+        if (timeDelta > 1000) { // More than 1 second
+            // Calculate distance moved since last update
+            val distanceMoved = calculateDistance(previousLocation, newLocation)
+            
+            // Calculate current speed (meters per second)
+            val speedMps = distanceMoved / (timeDelta / 1000.0f)
+            
+            // Update average speed with some smoothing (70% old value, 30% new value)
+            if (_averageSpeed.value == 0.0f) {
+                _averageSpeed.value = speedMps
+            } else {
+                _averageSpeed.value = _averageSpeed.value * 0.7f + speedMps * 0.3f
+            }
+            
+            // Update last location data
+            _lastLocation.value = newLocation
+            _lastLocationUpdateTime.value = currentTime
+            
+            // Update remaining distance and ETA
+            updateRemainingDistance()
+            updateRealTimeEta()
+        }
         
         // Update next stop based on new location
         updateNextStop(newLocation)
         
-        // Update navigation state
+        // Update navigation state with real-time data
         updateNavigationState(location)
     }
 
@@ -332,13 +416,16 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
         _navigationState.value = NavigationState(
             currentLocation = currentLocation,
             destinationLocation = destinationLocation,
-            distance = calculateDistance(currentLocation, destinationLocation),
-            estimatedTime = _navigationState.value.estimatedTime, // Keep existing estimated time
+            distance = _remainingDistance.value,
+            estimatedTime = _currentEta.value,
             status = _currentRoute.value?.status ?: "active",
             nextStop = nextStop?.stopName,
             routeName = _transitRoute.value?.tripDetails?.routeName,
             tripHeadsign = _transitRoute.value?.tripDetails?.tripHeadsign,
-            distanceToNextStop = nextStop?.let { calculateDistance(currentLocation, it.location) }?.toInt()
+            distanceToNextStop = nextStop?.let { calculateDistance(currentLocation, it.location) }?.toInt(),
+            isWeekend = _isWeekend.value,
+            weekendMessage = if (_isWeekend.value) "Weekend service in effect. Schedules may vary." else null,
+            trafficCondition = _trafficCondition.value
         )
     }
 
@@ -415,6 +502,92 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
         stopRealtimeUpdates()
         dbHelper.close()
     }
+    
+    /**
+     * Update the remaining distance to destination based on current location
+     */
+    private fun updateRemainingDistance() {
+        val destination = _navigationState.value.destinationLocation ?: return
+        val currentLoc = _currentLocation.value
+        
+        // First, calculate direct distance to destination
+        var directDistance = calculateDistance(currentLoc, destination).toFloat()
+        
+        // If we have transit stops, calculate distance through remaining stops
+        val stops = _transitStops.value
+        val nextStopIndex = _nextStop.value?.let { nextStop ->
+            stops.indexOfFirst { it.stopId == nextStop.stopId }
+        } ?: -1
+        
+        if (nextStopIndex >= 0 && nextStopIndex < stops.size - 1) {
+            // Calculate distance through remaining stops
+            var totalDistance = calculateDistance(currentLoc, stops[nextStopIndex].location).toFloat()
+            
+            // Add distances between remaining stops
+            for (i in nextStopIndex until stops.size - 1) {
+                totalDistance += calculateDistance(stops[i].location, stops[i + 1].location).toFloat()
+            }
+            
+            // Use the route distance if it's greater than direct distance
+            // (this ensures we account for the actual route, not just straight line)
+            directDistance = maxOf(directDistance, totalDistance)
+        }
+        
+        _remainingDistance.value = directDistance
+    }
+    
+    /**
+     * Update the ETA based on current location, speed, and traffic conditions
+     */
+    private fun updateRealTimeEta() {
+        // Get the remaining distance
+        val remainingDist = _remainingDistance.value
+        
+        // If we have a reasonable average speed, use it to calculate ETA
+        if (_averageSpeed.value > 0.5f) { // More than 0.5 m/s (about 1.8 km/h)
+            // Calculate time in minutes based on current speed
+            var timeMinutes = (remainingDist / _averageSpeed.value) / 60
+            
+            // Apply traffic condition factor
+            timeMinutes *= when(_trafficCondition.value) {
+                TrafficCondition.LIGHT -> 0.9f     // 10% faster than expected
+                TrafficCondition.NORMAL -> 1.0f    // As expected
+                TrafficCondition.MODERATE -> 1.2f  // 20% slower than expected
+                TrafficCondition.HEAVY -> 1.5f     // 50% slower than expected
+            }
+            
+            // Apply weekend factor if applicable
+            if (_isWeekend.value) {
+                timeMinutes *= 1.1f  // 10% slower on weekends
+            }
+            
+            // Update the ETA
+            _currentEta.value = timeMinutes.toInt()
+        } else {
+            // Fallback to the original estimate if we don't have good speed data
+            _currentEta.value = _navigationState.value.estimatedTime
+        }
+    }
+    
+    /**
+     * Simulate changing traffic conditions
+     */
+    private fun simulateTrafficConditions() {
+        // Simulate traffic conditions changing
+        val random = Random().nextInt(100)
+        _trafficCondition.value = when {
+            random < 20 -> TrafficCondition.LIGHT
+            random < 60 -> TrafficCondition.NORMAL
+            random < 85 -> TrafficCondition.MODERATE
+            else -> TrafficCondition.HEAVY
+        }
+        
+        // Log the change
+        Log.d("TripDetailsViewModel", "Traffic conditions changed to ${_trafficCondition.value}")
+        
+        // Update the ETA based on new traffic conditions
+        updateRealTimeEta()
+    }
 }
 
 data class TripRoute(
@@ -444,6 +617,7 @@ data class TripRoute(
         }
     }
 }
+
 data class NavigationState(
     val currentLocation: GeoPoint = GeoPoint(-1.286389, 36.817223),
     val destinationLocation: GeoPoint = GeoPoint(-1.2858, 36.8219),
@@ -454,5 +628,14 @@ data class NavigationState(
     val routeName: String? = null,
     val tripHeadsign: String? = null,
     val distanceToNextStop: Int? = null,
-    val errorMessage: String? = null
+    val isWeekend: Boolean = false,
+    val weekendMessage: String? = null,
+    val trafficCondition: TrafficCondition = TrafficCondition.NORMAL
 )
+
+enum class TrafficCondition {
+    LIGHT,      // Light traffic, faster than normal
+    NORMAL,     // Normal traffic conditions
+    MODERATE,   // Moderate traffic, slightly slower
+    HEAVY       // Heavy traffic, significantly slower
+}
