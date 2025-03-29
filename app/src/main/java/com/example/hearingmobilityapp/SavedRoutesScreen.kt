@@ -122,9 +122,9 @@ fun RouteItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = route.name, fontSize = 16.sp, color = Color.Black)
+                Text(text = "From: ${route.startLocation}", fontSize = 16.sp, color = Color.Black)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(text = route.details, fontSize = 14.sp, color = Color.DarkGray)
+                Text(text = "To: ${route.endLocation}", fontSize = 14.sp, color = Color.DarkGray)
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "Type: ${route.destinationType}",

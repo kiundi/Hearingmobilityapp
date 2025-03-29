@@ -3,6 +3,7 @@ package com.example.hearingmobilityapp
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import org.osmdroid.util.GeoPoint
 
 @Entity(tableName = "stops")
 data class StopEntity(
@@ -25,4 +26,11 @@ data class StopEntity(
     val location_type: Int?,
     @ColumnInfo(name = "parent_station") 
     val parent_station: String?
-)
+) {
+    /**
+     * Converts this stop entity to a GeoPoint
+     */
+    fun toGeoPoint(): GeoPoint {
+        return GeoPoint(stop_lat, stop_lon)
+    }
+}
