@@ -98,6 +98,7 @@ dependencies {
     implementation (libs.osmdroid.android)
     implementation (libs.androidx.room.runtime)
     implementation (libs.androidx.room.ktx)
+    implementation(libs.androidx.media3.common.ktx)
     ksp(libs.androidx.room.compiler)
     implementation (libs.osmdroid.osmdroid.android.v6116)
     // Remove the problematic OSMBonusPack dependencies

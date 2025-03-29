@@ -8,6 +8,7 @@ import android.location.LocationManager
 import android.os.Bundle
 import androidx.core.app.ActivityCompat
 import android.content.Context
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +56,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.util.Log
+import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -571,6 +574,7 @@ private val locationMap = mutableMapOf<String, Location>().apply {
     // Add more locations as needed
 }
 
+@OptIn(UnstableApi::class)
 private fun getCoordinatesForLocation(location: String): Pair<Double, Double> {
     // Handle special cases that might cause parsing errors
     if (location.contains("ZONE", ignoreCase = true)) {

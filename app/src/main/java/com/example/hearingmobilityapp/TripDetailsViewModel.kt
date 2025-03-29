@@ -444,7 +444,6 @@ data class TripRoute(
         }
     }
 }
-
 data class NavigationState(
     val currentLocation: GeoPoint = GeoPoint(-1.286389, 36.817223),
     val destinationLocation: GeoPoint = GeoPoint(-1.2858, 36.8219),
@@ -454,5 +453,6 @@ data class NavigationState(
     val nextStop: String? = null,
     val routeName: String? = null,
     val tripHeadsign: String? = null,
-    val distanceToNextStop: Int? = null
+    val distanceToNextStop: Int? = null,
+    val errorMessage: String? = null
 )
