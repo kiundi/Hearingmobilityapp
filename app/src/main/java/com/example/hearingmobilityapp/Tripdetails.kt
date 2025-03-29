@@ -259,17 +259,43 @@ fun TripDetailsScreen(
                     results
                 )
                 val totalDistance = results[0]
-                val numberOfPoints = (totalDistance / 100).toInt().coerceIn(5, 20)
+                val numberOfPoints = (totalDistance / 100).toInt().coerceIn(8, 25)
 
-                // Generate route points
-                for (i in 1 until numberOfPoints) {
-                    val progress = i.toFloat() / numberOfPoints
+                // Create a more realistic path with curves
+                // First, create a midpoint with some offset to create a curve
+                val midLat = (start.latitude + end.latitude) / 2
+                val midLon = (start.longitude + end.longitude) / 2
+                
+                // Add some randomness to make the route look more natural
+                val latOffset = (Math.random() * 0.001 - 0.0005) * (if (Math.random() > 0.5) 1 else -1)
+                val lonOffset = (Math.random() * 0.001 - 0.0005) * (if (Math.random() > 0.5) 1 else -1)
+                
+                val midPoint = GeoPoint(midLat + latOffset, midLon + lonOffset)
+                
+                // Generate first half of the route (start to midpoint)
+                for (i in 1 until numberOfPoints / 2) {
+                    val progress = i.toFloat() / (numberOfPoints / 2)
                     val randomLat = (Math.random() * 0.0002 - 0.0001)
                     val randomLon = (Math.random() * 0.0002 - 0.0001)
 
                     points.add(GeoPoint(
-                        start.latitude + (end.latitude - start.latitude) * progress + randomLat,
-                        start.longitude + (end.longitude - start.longitude) * progress + randomLon
+                        start.latitude + (midPoint.latitude - start.latitude) * progress + randomLat,
+                        start.longitude + (midPoint.longitude - start.longitude) * progress + randomLon
+                    ))
+                }
+                
+                // Add the midpoint
+                points.add(midPoint)
+                
+                // Generate second half of the route (midpoint to end)
+                for (i in 1 until numberOfPoints / 2) {
+                    val progress = i.toFloat() / (numberOfPoints / 2)
+                    val randomLat = (Math.random() * 0.0002 - 0.0001)
+                    val randomLon = (Math.random() * 0.0002 - 0.0001)
+
+                    points.add(GeoPoint(
+                        midPoint.latitude + (end.latitude - midPoint.latitude) * progress + randomLat,
+                        midPoint.longitude + (end.longitude - midPoint.longitude) * progress + randomLon
                     ))
                 }
 
@@ -438,13 +464,21 @@ fun TripDetailsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Enhanced Map with Route Visualization
-            OSMDroidMap(
-                currentLocation = currentLocation,
-                destination = destinationPoint,
-                routePoints = routePoints,
-                selectedArea = selectedArea,
-                tripDetailsViewModel = tripDetailsViewModel
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(300.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.LightGray, shape = RoundedCornerShape(8.dp))
+            ) {
+                OSMDroidMap(
+                    currentLocation = currentLocation,
+                    destination = destinationPoint,
+                    routePoints = routePoints,
+                    selectedArea = selectedArea,
+                    tripDetailsViewModel = tripDetailsViewModel
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -452,7 +486,8 @@ fun TripDetailsScreen(
             TripSummary(
                 distance = distanceToDestination,
                 estimatedTimeMinutes = estimatedTimeMinutes,
-                selectedArea = selectedArea
+                selectedArea = selectedArea,
+                tripDetailsViewModel = tripDetailsViewModel
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -504,12 +539,19 @@ fun TripDetailsScreen(
                 SimpleDateFormat("HH:mm", Locale.getDefault()).format(calendar.time)
             }
 
-            TripStops(
-                startLocation = source,
-                startTime = currentTime,
-                endLocation = destination,
-                endTime = estimatedArrival
-            )
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(8.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                TripStops(
+                    startLocation = source,
+                    startTime = currentTime,
+                    endLocation = destination,
+                    endTime = estimatedArrival
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -725,125 +767,144 @@ fun OSMDroidMap(
             mapView?.onDetach()
         }
     }
-    // Fixed map container with border
+    
+    AndroidView(
+        factory = { ctx ->
+            MapView(ctx).apply {
+                Configuration.getInstance()
+                    .load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+                setTileSource(TileSourceFactory.MAPNIK)
+                setMultiTouchControls(true)
+                controller.setZoom(15.0)
+                clipToOutline = true  // ensure this view is clipped to its outline
+
+                // Set initial position to Nairobi
+                controller.setCenter(GeoPoint(-1.286389, 36.817223))
+
+                mapView = this
+            }
+        },
+        modifier = Modifier.fillMaxSize()
+    ) { mapView ->
+        // Update map markers and route
+        mapView.overlays.clear()
+
+        // Current location marker
+        val currentLocationMarker = Marker(mapView).apply {
+            position = currentLocation
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            title = "Current Location"
+            icon = ContextCompat.getDrawable(context, R.drawable.ic_location)
+            setInfoWindow(null)
+        }
+        mapView.overlays.add(currentLocationMarker)
+
+        // Destination marker
+        val destinationMarker = Marker(mapView).apply {
+            position = destination
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            title = selectedArea
+            icon = ContextCompat.getDrawable(context, getIconForArea(selectedArea))
+            setInfoWindow(null)
+        }
+        mapView.overlays.add(destinationMarker)
+
+        // Route polyline with improved styling
+        if (routePoints.isNotEmpty()) {
+            val routeLine = Polyline().apply {
+                setPoints(routePoints)
+                outlinePaint.color = AndroidColor.parseColor("#007AFF")
+                outlinePaint.strokeWidth = 8f
+                outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                outlinePaint.isAntiAlias = true
+            }
+            mapView.overlays.add(routeLine)
+        }
+
+        // Center map to show both markers
+        val boundingBox = BoundingBox.fromGeoPoints(listOf(currentLocation, destination))
+        mapView.zoomToBoundingBox(boundingBox.increaseByScale(1.2f), true)
+
+        mapView.invalidate()
+    }
+
+    // Location update job
+    DisposableEffect(Unit) {
+        locationUpdateJob = coroutineScope.launch {
+            if (ActivityCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                while (isActive) {
+                    val location =
+                        locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                    location?.let {
+                        mapView?.let { map ->
+                            map.controller.setCenter(GeoPoint(it.latitude, it.longitude))
+                            map.invalidate()
+                        }
+                    }
+                    delay(5000) // Update every 5 seconds
+                }
+            }
+        }
+
+        onDispose {
+            locationUpdateJob?.cancel()
+            mapView?.onDetach()
+        }
+    }
+
+    // Zoom controls overlay
     Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .height(300.dp)
-            .background(Color.White, shape = MaterialTheme.shapes.medium)
-            .padding(4.dp)
+            .fillMaxSize()
+            .padding(0.dp)
     ) {
-        AndroidView(
-            factory = { ctx ->
-                MapView(ctx).apply {
-                    Configuration.getInstance()
-                        .load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
-                    setTileSource(TileSourceFactory.MAPNIK)
-                    setMultiTouchControls(true)
-                    controller.setZoom(15.0)
-
-                    // Set initial position to Nairobi
-                    controller.setCenter(GeoPoint(-1.286389, 36.817223))
-
-                    mapView = this
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        ) { mapView ->
-            // Update map markers and route
-            mapView.overlays.clear()
-
-            // Current location marker
-            val currentLocationMarker = Marker(mapView).apply {
-                position = currentLocation
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                title = "Current Location"
-                icon = ContextCompat.getDrawable(context, R.drawable.ic_location)
-                setInfoWindow(null)
-            }
-            mapView.overlays.add(currentLocationMarker)
-
-            // Destination marker
-            val destinationMarker = Marker(mapView).apply {
-                position = destination
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                title = selectedArea
-                icon = ContextCompat.getDrawable(context, getIconForArea(selectedArea))
-                setInfoWindow(null)
-            }
-            mapView.overlays.add(destinationMarker)
-
-            // Route polyline
-            if (routePoints.isNotEmpty()) {
-                val routeLine = Polyline().apply {
-                    setPoints(routePoints)
-                    outlinePaint.color = AndroidColor.parseColor("#007AFF")
-                    outlinePaint.strokeWidth = 5f
-                }
-                mapView.overlays.add(routeLine)
-            }
-
-            // Center map to show both markers
-            val boundingBox = BoundingBox.fromGeoPoints(listOf(currentLocation, destination))
-            mapView.zoomToBoundingBox(boundingBox.increaseByScale(1.2f), true)
-
-            mapView.invalidate()
-        }
-
-        // Location update job
-        DisposableEffect(Unit) {
-            locationUpdateJob = coroutineScope.launch {
-                if (ActivityCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    ) ==
-                    PackageManager.PERMISSION_GRANTED
-                ) {
-                    while (isActive) {
-                        val location =
-                            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                        location?.let {
-                            mapView?.let { map ->
-                                map.controller.setCenter(GeoPoint(it.latitude, it.longitude))
-                                map.invalidate()
-                            }
-                        }
-                        delay(5000) // Update every 5 seconds
-                    }
-                }
-            }
-
-            onDispose {
-                locationUpdateJob?.cancel()
-                mapView?.onDetach()
-            }
-        }
-
-        // Zoom controls overlay
-        Box(
+        Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(8.dp)
         ) {
-            Column {
-                IconButton(
-                    onClick = { mapView?.controller?.zoomIn() },
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.8f), CircleShape)
-                        .size(40.dp)
-                ) {
-                    Text("+", fontSize = 20.sp)
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                IconButton(
-                    onClick = { mapView?.controller?.zoomOut() },
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.8f), CircleShape)
-                        .size(40.dp)
-                ) {
-                    Text("-", fontSize = 20.sp)
-                }
+            IconButton(
+                onClick = { mapView?.controller?.zoomIn() },
+                modifier = Modifier
+                    .background(Color.White.copy(alpha = 0.9f), CircleShape)
+                    .size(40.dp)
+            ) {
+                Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
+            Spacer(modifier = Modifier.height(4.dp))
+            IconButton(
+                onClick = { mapView?.controller?.zoomOut() },
+                modifier = Modifier
+                    .background(Color.White.copy(alpha = 0.9f), CircleShape)
+                    .size(40.dp)
+            ) {
+                Text("-", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        
+        // Current location button
+        IconButton(
+            onClick = { 
+                mapView?.controller?.animateTo(currentLocation)
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+                .background(Color.White.copy(alpha = 0.9f), CircleShape)
+                .size(48.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.LocationOn,
+                contentDescription = "My Location",
+                tint = Color(0xFF007AFF),
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 }
@@ -852,64 +913,173 @@ fun OSMDroidMap(
 fun TripSummary(
     distance: Float,
     estimatedTimeMinutes: Int,
-    selectedArea: String
+    selectedArea: String,
+    tripDetailsViewModel: TripDetailsViewModel = viewModel()
 ) {
-    Row(
+    val isWeekend by tripDetailsViewModel.isWeekend.collectAsState()
+    val realTimeDistance by tripDetailsViewModel.remainingDistance.collectAsState()
+    val realTimeEta by tripDetailsViewModel.currentEta.collectAsState()
+    val trafficCondition by tripDetailsViewModel.trafficCondition.collectAsState()
+    
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White, shape = MaterialTheme.shapes.medium)
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        shape = RoundedCornerShape(12.dp)
     ) {
-        // Distance
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
         ) {
+            // Trip Summary Title
             Text(
-                text = String.format("%.1f km", distance / 1000),
+                text = "Trip Summary",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF333333)
+                color = Color(0xFF333333),
+                modifier = Modifier.padding(bottom = 8.dp)
             )
-            Text(
-                text = "Distance",
-                fontSize = 14.sp,
-                color = Color(0xFF666666)
-            )
-        }
+            
+            // Weekend Service Alert if applicable
+            if (isWeekend) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFFFF3E0), shape = RoundedCornerShape(8.dp))
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_info),
+                        contentDescription = "Weekend Service Info",
+                        tint = Color(0xFFFF9800),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Weekend service in effect. Schedules may vary.",
+                        fontSize = 14.sp,
+                        color = Color(0xFF5D4037)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            
+            // Traffic Condition Alert
+            if (trafficCondition != TrafficCondition.NORMAL) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            when (trafficCondition) {
+                                TrafficCondition.LIGHT -> Color(0xFFE8F5E9)  // Light green
+                                TrafficCondition.MODERATE -> Color(0xFFFFF8E1)  // Light yellow
+                                TrafficCondition.HEAVY -> Color(0xFFFFEBEE)  // Light red
+                                else -> Color.Transparent
+                            },
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(
+                            id = when (trafficCondition) {
+                                TrafficCondition.LIGHT -> R.drawable.ic_traffic_light
+                                TrafficCondition.MODERATE -> R.drawable.ic_traffic_medium
+                                TrafficCondition.HEAVY -> R.drawable.ic_traffic_heavy
+                                else -> R.drawable.ic_info
+                            }
+                        ),
+                        contentDescription = "Traffic Condition",
+                        tint = when (trafficCondition) {
+                            TrafficCondition.LIGHT -> Color(0xFF4CAF50)  // Green
+                            TrafficCondition.MODERATE -> Color(0xFFFFC107)  // Yellow
+                            TrafficCondition.HEAVY -> Color(0xFFF44336)  // Red
+                            else -> Color.Gray
+                        },
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = when (trafficCondition) {
+                            TrafficCondition.LIGHT -> "Light traffic conditions. You're making good time!"
+                            TrafficCondition.MODERATE -> "Moderate traffic ahead. Expect some delays."
+                            TrafficCondition.HEAVY -> "Heavy traffic detected. Significant delays expected."
+                            else -> ""
+                        },
+                        fontSize = 14.sp,
+                        color = Color(0xFF5D4037)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            
+            // Trip Details
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Distance (Real-time)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = String.format("%.1f km", 
+                            if (realTimeDistance > 0) realTimeDistance / 1000 else distance / 1000),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF333333)
+                    )
+                    Text(
+                        text = "Remaining",
+                        fontSize = 14.sp,
+                        color = Color(0xFF666666)
+                    )
+                }
 
-        // ETA
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "$estimatedTimeMinutes min",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF333333)
-            )
-            Text(
-                text = "ETA",
-                fontSize = 14.sp,
-                color = Color(0xFF666666)
-            )
-        }
+                // ETA (Real-time)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "${if (realTimeEta > 0) realTimeEta else estimatedTimeMinutes} min",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = when {
+                            trafficCondition == TrafficCondition.HEAVY -> Color(0xFFF44336)  // Red for heavy traffic
+                            trafficCondition == TrafficCondition.MODERATE -> Color(0xFFFFC107)  // Yellow for moderate
+                            isWeekend -> Color(0xFFFF9800)  // Orange for weekend
+                            else -> Color(0xFF333333)  // Default
+                        }
+                    )
+                    Text(
+                        text = "ETA",
+                        fontSize = 14.sp,
+                        color = Color(0xFF666666)
+                    )
+                }
 
-        // Area Type
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = selectedArea,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF007AFF)
-            )
-            Text(
-                text = "Area Type",
-                fontSize = 14.sp,
-                color = Color(0xFF666666)
-            )
+                // Area Type
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = selectedArea,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF007AFF)
+                    )
+                    Text(
+                        text = "Area Type",
+                        fontSize = 14.sp,
+                        color = Color(0xFF666666)
+                    )
+                }
+            }
         }
     }
 }

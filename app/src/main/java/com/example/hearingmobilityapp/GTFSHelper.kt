@@ -38,6 +38,8 @@ class GTFSHelper(private val context: Context) {
     private val stopTimes = mutableListOf<StopTimeEntity>()
     private val shapes = mutableListOf<ShapePoint>()
     private val realtimeData = mutableMapOf<String, List<GeoPoint>>()
+    private val calendar = mutableListOf<CalendarEntity>()
+    private val calendarDates = mutableListOf<CalendarDateEntity>()
     
     // Cache for trip paths
     private val tripPathCache = mutableMapOf<String, List<GeoPoint>>()
@@ -50,26 +52,30 @@ class GTFSHelper(private val context: Context) {
 
     private fun parseGTFSFiles() {
         // Parse stops.txt
-        context.assets.open("stops.txt").bufferedReader().use { reader ->
-            reader.readLine() // Skip header
-            reader.forEachLine { line ->
-                try {
-                    val fields = line.split(",")
-                    stops.add(StopEntity(
-                        stop_id = fields[0],
-                        stop_name = fields[2],
-                        stop_code = fields[3],
-                        stop_lat = fields[4].toDoubleOrNull() ?: 0.0,
-                        stop_lon = fields[5].toDoubleOrNull() ?: 0.0,
-                        zone_id = fields[6],
-                        stop_url = fields[7],
-                        location_type = fields[8].toIntOrNull(),
-                        parent_station = fields[9]
-                    ))
-                } catch (e: Exception) {
-                    Log.e("GTFSHelper", "Error parsing stop line: $line - ${e.message}")
+        try {
+            context.assets.open("stops.txt").bufferedReader().use { reader ->
+                reader.readLine() // Skip header
+                reader.forEachLine { line ->
+                    try {
+                        val fields = line.split(",")
+                        stops.add(StopEntity(
+                            stop_id = fields[0],
+                            stop_name = fields[2],
+                            stop_code = fields[3],
+                            stop_lat = fields[4].toDoubleOrNull() ?: 0.0,
+                            stop_lon = fields[5].toDoubleOrNull() ?: 0.0,
+                            zone_id = fields[6],
+                            stop_url = fields[7],
+                            location_type = fields[8].toIntOrNull(),
+                            parent_station = fields[9]
+                        ))
+                    } catch (e: Exception) {
+                        Log.e("GTFSHelper", "Error parsing stop line: $line - ${e.message}")
+                    }
                 }
             }
+        } catch (e: Exception) {
+            Log.e("GTFSHelper", "Error parsing stops.txt: ${e.message}")
         }
 
         // Parse routes.txt
@@ -136,6 +142,55 @@ class GTFSHelper(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.d("GTFSHelper", "No shapes.txt file found: ${e.message}")
+        }
+        
+        // Parse calendar.txt if it exists
+        try {
+            context.assets.open("calendar.txt").bufferedReader().use { reader ->
+                reader.readLine() // Skip header
+                reader.forEachLine { line ->
+                    try {
+                        val fields = line.split(",")
+                        calendar.add(CalendarEntity(
+                            service_id = fields[0],
+                            monday = fields[1].toIntOrNull() ?: 0,
+                            tuesday = fields[2].toIntOrNull() ?: 0,
+                            wednesday = fields[3].toIntOrNull() ?: 0,
+                            thursday = fields[4].toIntOrNull() ?: 0,
+                            friday = fields[5].toIntOrNull() ?: 0,
+                            saturday = fields[6].toIntOrNull() ?: 0,
+                            sunday = fields[7].toIntOrNull() ?: 0,
+                            start_date = fields[8],
+                            end_date = fields[9]
+                        ))
+                    } catch (e: Exception) {
+                        Log.e("GTFSHelper", "Error parsing calendar line: $line - ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d("GTFSHelper", "No calendar.txt file found: ${e.message}")
+        }
+        
+        // Parse calendar_dates.txt if it exists
+        try {
+            context.assets.open("calendar_dates.txt").bufferedReader().use { reader ->
+                reader.readLine() // Skip header
+                reader.forEachLine { line ->
+                    try {
+                        val fields = line.split(",")
+                        calendarDates.add(CalendarDateEntity(
+                            service_id = fields[0],
+                            date = fields[1],
+                            exception_type = fields[2].toIntOrNull() ?: 0
+                        ))
+                    } catch (e: Exception) {
+                        Log.e("GTFSHelper", "Error parsing calendar_dates line: $line - ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d("GTFSHelper", "No calendar_dates.txt file found: ${e.message}")
         }
     }
 
@@ -310,6 +365,10 @@ class GTFSHelper(private val context: Context) {
         // Get all stop times for the start stop
         val startStopTimes = stopTimes.filter { it.stop_id == startStopId }
         
+        // Get current day of week (1 = Sunday, 7 = Saturday)
+        val calendar = Calendar.getInstance()
+        val currentDayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
+        
         // For each start stop time, check if there's a matching end stop time for the same trip
         for (startTime in startStopTimes) {
             val endTime = stopTimes.find { 
@@ -321,15 +380,18 @@ class GTFSHelper(private val context: Context) {
                 // Get the trip and route information
                 val trip = trips.find { it.trip_id == startTime.trip_id }
                 if (trip != null) {
-                    result.add(TripInfo(
-                        tripId = trip.trip_id,
-                        routeId = trip.route_id,
-                        tripHeadsign = trip.trip_headsign,
-                        departureTime = startTime.departure_time,
-                        arrivalTime = endTime.arrival_time,
-                        startSequence = startTime.stop_sequence,
-                        endSequence = endTime.stop_sequence
-                    ))
+                    // Check if this service operates on the current day of the week
+                    if (isServiceActiveToday(trip.service_id)) {
+                        result.add(TripInfo(
+                            tripId = trip.trip_id,
+                            routeId = trip.route_id,
+                            tripHeadsign = trip.trip_headsign,
+                            departureTime = startTime.departure_time,
+                            arrivalTime = endTime.arrival_time,
+                            startSequence = startTime.stop_sequence,
+                            endSequence = endTime.stop_sequence
+                        ))
+                    }
                 }
             }
         }
@@ -448,6 +510,54 @@ class GTFSHelper(private val context: Context) {
         realtimeData[tripId] = updatedPath
         
         return listOf(updatedPath)
+    }
+    
+    /**
+     * Check if a service is active on the current day of the week
+     * @param serviceId The service ID to check
+     * @return true if the service is active today, false otherwise
+     */
+    private fun isServiceActiveToday(serviceId: String): Boolean {
+        // Get current date and day of week
+        val calendar = Calendar.getInstance()
+        val currentDate = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(calendar.time)
+        val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
+        
+        // Check calendar_dates.txt for exceptions
+        val calendarDateException = calendarDates.find { it.service_id == serviceId && it.date == currentDate }
+        if (calendarDateException != null) {
+            // 1 = service added, 2 = service removed
+            return calendarDateException.exception_type == 1
+        }
+        
+        // Check calendar.txt for regular schedule
+        val calendarEntry = this.calendar.find { it.service_id == serviceId }
+        if (calendarEntry != null) {
+            // Check if service is active on the current day of week
+            return when (dayOfWeek) {
+                Calendar.MONDAY -> calendarEntry.monday == 1
+                Calendar.TUESDAY -> calendarEntry.tuesday == 1
+                Calendar.WEDNESDAY -> calendarEntry.wednesday == 1
+                Calendar.THURSDAY -> calendarEntry.thursday == 1
+                Calendar.FRIDAY -> calendarEntry.friday == 1
+                Calendar.SATURDAY -> calendarEntry.saturday == 1
+                Calendar.SUNDAY -> calendarEntry.sunday == 1
+                else -> false
+            }
+        }
+        
+        // If no calendar entry found, assume service is active (fallback)
+        return true
+    }
+    
+    /**
+     * Check if today is a weekend (Saturday or Sunday)
+     * @return true if today is a weekend, false otherwise
+     */
+    fun isWeekend(): Boolean {
+        val calendar = Calendar.getInstance()
+        val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
+        return dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
     }
     
     /**
