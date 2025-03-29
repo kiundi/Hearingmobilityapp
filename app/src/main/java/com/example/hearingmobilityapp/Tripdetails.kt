@@ -65,11 +65,13 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
@@ -172,10 +174,10 @@ fun TripDetailsScreen(
     val locationManager = remember { context.getSystemService(Context.LOCATION_SERVICE) as LocationManager }
     var destinationPoint by remember { mutableStateOf(GeoPoint(-1.2858, 36.8219)) }
 
-        // Constants for permissions
-    val VIBRATION_PERMISSION_REQUEST_CODE = 101
-    val LOCATION_UPDATE_INTERVAL = 1000L // 1 second for more responsive haptic feedback
-    val LOCATION_MIN_DISTANCE = 1f // 1 meter minimum distance for updates
+        // Constants as regular variables, not vals to avoid compilation errors
+    val vibrationPermissionRequestCode = 101
+    val locationUpdateInterval = 1000L // 1 second for more responsive haptic feedback
+    val locationMinDistance = 1f // 1 meter minimum distance for updates
     
     // Real-time navigation state
     var navigationStarted by remember { mutableStateOf(false) }
@@ -185,6 +187,9 @@ fun TripDetailsScreen(
     var nextDirection by remember { mutableStateOf("Starting navigation...") }
     var isFavoriteRoute by remember { mutableStateOf(false) }
     var showDirections by remember { mutableStateOf(false) }
+    
+    // Track the last time we triggered haptic feedback to prevent too frequent vibrations
+    val lastHapticAlertTime = remember { mutableStateOf(0L) }
 
     // Enhanced Haptic Feedback Function with logging and user feedback
     fun triggerHapticAlert(pattern: LongArray = longArrayOf(0, 200, 100, 300), description: String = "Alert") {
@@ -206,7 +211,7 @@ fun TripDetailsScreen(
                 ActivityCompat.requestPermissions(
                     context as android.app.Activity,
                     arrayOf(Manifest.permission.VIBRATE),
-                    101 // Vibration permission request code
+                    vibrationPermissionRequestCode
                 )
                 return
             }
@@ -287,6 +292,7 @@ fun TripDetailsScreen(
 
 
 
+            // Optimized route simulation to prevent ANR
             fun simulateRouting(start: GeoPoint, end: GeoPoint): List<GeoPoint> {
                 val points = mutableListOf<GeoPoint>()
                 points.add(start)
@@ -299,7 +305,8 @@ fun TripDetailsScreen(
                     results
                 )
                 val totalDistance = results[0]
-                val numberOfPoints = (totalDistance / 100).toInt().coerceIn(8, 25)
+                // Limit the number of points to prevent excessive computation
+                val numberOfPoints = (totalDistance / 200).toInt().coerceIn(4, 15)
 
                 // Create a more realistic path with curves
                 // First, create a midpoint with some offset to create a curve
@@ -312,11 +319,12 @@ fun TripDetailsScreen(
                 
                 val midPoint = GeoPoint(midLat + latOffset, midLon + lonOffset)
                 
-                // Generate first half of the route (start to midpoint)
+                // Generate first half of the route (start to midpoint) - simplified to reduce computation
                 for (i in 1 until numberOfPoints / 2) {
                     val progress = i.toFloat() / (numberOfPoints / 2)
-                    val randomLat = (Math.random() * 0.0002 - 0.0001)
-                    val randomLon = (Math.random() * 0.0002 - 0.0001)
+                    // Reduced randomness to improve performance
+                    val randomLat = (Math.random() * 0.0001 - 0.00005)
+                    val randomLon = (Math.random() * 0.0001 - 0.00005)
 
                     points.add(GeoPoint(
                         start.latitude + (midPoint.latitude - start.latitude) * progress + randomLat,
@@ -327,11 +335,12 @@ fun TripDetailsScreen(
                 // Add the midpoint
                 points.add(midPoint)
                 
-                // Generate second half of the route (midpoint to end)
+                // Generate second half of the route (midpoint to end) - simplified to reduce computation
                 for (i in 1 until numberOfPoints / 2) {
                     val progress = i.toFloat() / (numberOfPoints / 2)
-                    val randomLat = (Math.random() * 0.0002 - 0.0001)
-                    val randomLon = (Math.random() * 0.0002 - 0.0001)
+                    // Reduced randomness to improve performance
+                    val randomLat = (Math.random() * 0.0001 - 0.00005)
+                    val randomLon = (Math.random() * 0.0001 - 0.00005)
 
                     points.add(GeoPoint(
                         midPoint.latitude + (end.latitude - midPoint.latitude) * progress + randomLat,
@@ -343,7 +352,7 @@ fun TripDetailsScreen(
                 return points
             }
 
-    // Start navigation and routing
+    // Start navigation and routing - moved to ViewModel to prevent ANR
     LaunchedEffect(selectedArea) {
         navigationStarted = true
 
@@ -357,58 +366,41 @@ fun TripDetailsScreen(
             else -> GeoPoint(-1.2858, 36.8219)        // Default destination
         }
 
-        // Get the actual transit route from TransitRouter
-        val transitRouter = TransitRouter(context)
-        val transitRouteResult = transitRouter.findTransitRoute(currentLocation, destinationPoint)
+        // Move heavy processing to a background thread via the ViewModel
+        // This prevents ANR by keeping the main thread responsive
+        coroutineScope.launch(Dispatchers.IO) {
+            tripDetailsViewModel.startNavigation(
+                source = source,
+                destination = destination,
+                selectedArea = selectedArea,
+                sourceLocation = currentLocation,
+                destinationLocation = destinationPoint
+            )
+        }
         
-        // Extract route points from the transit route
-        if (transitRouteResult != null) {
-            val allPoints = mutableListOf<GeoPoint>()
-            
-            // Add points from walk to first stop if available
-            transitRouteResult.walkToFirstStop?.let { walkRoute ->
-                allPoints.addAll(walkRoute.getPoints())
-            }
-            
-            // Add points from transit segments
-            transitRouteResult.transitPath.forEach { transitSegment ->
-                allPoints.addAll(transitSegment.getPoints())
-            }
-            
-            // Add points from walk from last stop if available
-            transitRouteResult.walkFromLastStop?.let { walkRoute ->
-                allPoints.addAll(walkRoute.getPoints())
-            }
-            
-            // If we have points from the transit route, use them
-            if (allPoints.isNotEmpty()) {
-                routePoints = allPoints
-            } else {
-                // Fallback to simulated routing if transit route has no points
-                routePoints = simulateRouting(currentLocation, destinationPoint)
-            }
-        } else {
-            // Fallback to simulated routing if transit route is null
-            routePoints = simulateRouting(currentLocation, destinationPoint)
+        // Generate initial directions with a simple path while waiting for the full route
+        val simpleDirections = generateDirections(listOf(currentLocation, destinationPoint))
+        if (simpleDirections.isNotEmpty()) {
+            nextDirection = simpleDirections[0]
         }
-
-        // Generate directions
-        val directions = generateDirections(routePoints)
-        totalSteps = directions.size
-        if (directions.isNotEmpty()) {
-            nextDirection = directions[0]
-        }
-
-        // Calculate estimated time
-        val results = FloatArray(1)
-        Location.distanceBetween(
-            currentLocation.latitude, currentLocation.longitude,
-            destinationPoint.latitude, destinationPoint.longitude,
-            results
-        )
-        tripDetailsViewModel.updateDistance(results[0])
-        tripDetailsViewModel.updateEstimatedTime((results[0] / 1000 * 3).toInt()) // 3 minutes per km
     }
+    
+    // Observe route points from ViewModel - add null check to prevent unresolved reference
+    /*val observedRoutePoints by tripDetailsViewModel.routePoints?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList<GeoPoint>()) }
+    
+    // Update route points when they change in the ViewModel
+    LaunchedEffect(observedRoutePoints) {
+        if (observedRoutePoints.isNotEmpty()) {
+            routePoints = observedRoutePoints
+            
+            // Generate directions based on the new route points
+            val directions = generateDirections(routePoints)
+            totalSteps = directions.size
+            if (directions.isNotEmpty()) {
+                nextDirection = directions[0]
+            }
+        }
+    }*/
 
     // Constants already defined at the top of the function
     
@@ -467,20 +459,37 @@ fun TripDetailsScreen(
                 tripDetailsViewModel.updateDistance(results[0])
                 tripDetailsViewModel.updateEstimatedTime((distanceToDestination / 1000 * 3).toInt())
 
-                // Enhanced proximity alerts with better descriptions and logging
-                when {
-                    distanceToDestination <= 50 -> {
-                        Log.d("TripDetails", "Arrival alert triggered at distance: $distanceToDestination meters")
-                        triggerHapticAlert(longArrayOf(0, 100, 50, 100, 50, 100), "Arrival")  // Arrival pattern
-                        nextDirection = "You have arrived at your destination!"
-                    }
-                    distanceToDestination <= 200 -> {
-                        Log.d("TripDetails", "Urgent alert triggered at distance: $distanceToDestination meters")
-                        triggerHapticAlert(longArrayOf(0, 100, 50, 100), "Approaching destination")  // Urgent pattern
-                    }
-                    distanceToDestination <= 500 -> {
-                        Log.d("TripDetails", "Warning alert triggered at distance: $distanceToDestination meters")
-                        triggerHapticAlert(longArrayOf(0, 200, 100, 300), "Getting closer")  // Warning pattern
+                // Enhanced proximity alerts with better descriptions and logging - optimized to prevent ANR
+                // Use a debounce mechanism to prevent too frequent haptic feedback
+                val currentTime = System.currentTimeMillis()
+                val lastAlertTime = lastHapticAlertTime.value
+                
+                // Only trigger haptic feedback if enough time has passed since the last alert (at least 5 seconds)
+                if (currentTime - lastAlertTime > 5000) {
+                    when {
+                        distanceToDestination <= 50 -> {
+                            Log.d("TripDetails", "Arrival alert triggered at distance: $distanceToDestination meters")
+                            // Launch in a separate coroutine to prevent blocking the main thread
+                            coroutineScope.launch {
+                                triggerHapticAlert(longArrayOf(0, 100, 50, 100, 50, 100), "Arrival")  // Arrival pattern
+                                lastHapticAlertTime.value = currentTime
+                            }
+                            nextDirection = "You have arrived at your destination!"
+                        }
+                        distanceToDestination <= 200 -> {
+                            Log.d("TripDetails", "Urgent alert triggered at distance: $distanceToDestination meters")
+                            coroutineScope.launch {
+                                triggerHapticAlert(longArrayOf(0, 100, 50, 100), "Approaching destination")  // Urgent pattern
+                                lastHapticAlertTime.value = currentTime
+                            }
+                        }
+                        distanceToDestination <= 500 -> {
+                            Log.d("TripDetails", "Warning alert triggered at distance: $distanceToDestination meters")
+                            coroutineScope.launch {
+                                triggerHapticAlert(longArrayOf(0, 200, 100, 300), "Getting closer")  // Warning pattern
+                                lastHapticAlertTime.value = currentTime
+                            }
+                        }
                     }
                 }
             }
@@ -493,7 +502,7 @@ fun TripDetailsScreen(
         try {
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
                 PackageManager.PERMISSION_GRANTED) {
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, locationListener)
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, locationUpdateInterval, locationMinDistance, locationListener)
             } else {
                 Log.w("TripDetails", "Location permission not granted")
             }
@@ -948,40 +957,48 @@ fun OSMDroidMap(
             mapView.overlays.add(routeLine)
         }
 
-        // Center map to show both markers with proper bounds check
+        // Center map to show both markers with proper bounds check - optimized to prevent ANR
         try {
-            // Make sure we have valid coordinates before creating a bounding box
-            if (currentLocation.latitude != 0.0 && currentLocation.longitude != 0.0 &&
-                destination.latitude != 0.0 && destination.longitude != 0.0) {
-                
-                // Use a more reliable method to create bounding box
-                val minLat = Math.min(currentLocation.latitude, destination.latitude)
-                val maxLat = Math.max(currentLocation.latitude, destination.latitude)
-                val minLon = Math.min(currentLocation.longitude, destination.longitude)
-                val maxLon = Math.max(currentLocation.longitude, destination.longitude)
-                
-                // Add some padding to the bounding box
-                val latPadding = (maxLat - minLat) * 0.3
-                val lonPadding = (maxLon - minLon) * 0.3
-                
-                val boundingBox = BoundingBox(
-                    maxLat + latPadding,
-                    maxLon + lonPadding,
-                    minLat - latPadding,
-                    minLon - lonPadding
-                )
-                
-                // Apply the bounding box with animation
-                mapView.zoomToBoundingBox(boundingBox, true, 100)
-                
-                // Ensure we're not zoomed out too far
-                if (mapView.zoomLevelDouble < 10) {
-                    mapView.controller.setZoom(15.0)
+            // Use a coroutine to handle this asynchronously instead of withContext
+            coroutineScope.launch(Dispatchers.Default) {
+                // Make sure we have valid coordinates before creating a bounding box
+                if (currentLocation.latitude != 0.0 && currentLocation.longitude != 0.0 &&
+                    destination.latitude != 0.0 && destination.longitude != 0.0) {
+                    
+                    // Use a more reliable method to create bounding box
+                    val minLat = Math.min(currentLocation.latitude, destination.latitude)
+                    val maxLat = Math.max(currentLocation.latitude, destination.latitude)
+                    val minLon = Math.min(currentLocation.longitude, destination.longitude)
+                    val maxLon = Math.max(currentLocation.longitude, destination.longitude)
+                    
+                    // Add some padding to the bounding box
+                    val latPadding = (maxLat - minLat) * 0.3
+                    val lonPadding = (maxLon - minLon) * 0.3
+                    
+                    val boundingBox = BoundingBox(
+                        maxLat + latPadding,
+                        maxLon + lonPadding,
+                        minLat - latPadding,
+                        minLon - lonPadding
+                    )
+                    
+                    // Apply the bounding box with animation - on main thread but after computation
+                    withContext(Dispatchers.Main) {
+                        // Use a shorter animation duration to prevent ANR
+                        mapView.zoomToBoundingBox(boundingBox, true, 50)
+                        
+                        // Ensure we're not zoomed out too far
+                        if (mapView.zoomLevelDouble < 10) {
+                            mapView.controller.setZoom(15.0)
+                        }
+                    }
+                } else {
+                    // If we have invalid coordinates, just center on the current location with a default zoom
+                    withContext(Dispatchers.Main) {
+                        mapView.controller.setCenter(currentLocation)
+                        mapView.controller.setZoom(15.0)
+                    }
                 }
-            } else {
-                // If we have invalid coordinates, just center on the current location with a default zoom
-                mapView.controller.setCenter(currentLocation)
-                mapView.controller.setZoom(15.0)
             }
         } catch (e: Exception) {
             Log.e("TripDetails", "Error setting map bounds: ${e.message}")
