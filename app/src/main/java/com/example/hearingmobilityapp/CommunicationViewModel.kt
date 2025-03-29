@@ -37,6 +37,10 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     private val _showRemovedFromFavoritesMessage = MutableStateFlow(false)
     val showRemovedFromFavoritesMessage: StateFlow<Boolean> = _showRemovedFromFavoritesMessage
     
+    // Saved routes functionality
+    private val _savedRoutes = MutableStateFlow<List<SavedRoute>>(emptyList())
+    val savedRoutes: StateFlow<List<SavedRoute>> = _savedRoutes
+    
     // Voice recognition manager
     private val voiceRecognitionManager = VoiceRecognitionManager(application.applicationContext)
     
@@ -47,6 +51,90 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     // Partial transcription (updates as user speaks)
     private val _partialTranscription = MutableStateFlow("")
     val partialTranscription: StateFlow<String> = _partialTranscription
+    
+    /**
+     * Save a route to the saved routes list
+     */
+    fun saveRoute(startLocation: String, endLocation: String, destinationType: String) {
+        val newRoute = SavedRoute(
+            startLocation = startLocation,
+            endLocation = endLocation,
+            destinationType = destinationType
+        )
+        _savedRoutes.value = _savedRoutes.value + newRoute
+        saveRouteToFirestore(newRoute)
+    }
+    
+    /**
+     * Remove a route from the saved routes list
+     */
+    fun removeRoute(routeId: String) {
+        _savedRoutes.value = _savedRoutes.value.filter { it.id != routeId }
+        removeRouteFromFirestore(routeId)
+    }
+    
+    /**
+     * Save a route to Firestore
+     */
+    private fun saveRouteToFirestore(route: SavedRoute) {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user != null) {
+            val db = FirebaseFirestore.getInstance()
+            db.collection("users")
+                .document(user.uid)
+                .collection("routes")
+                .document(route.id)
+                .set(route)
+                .addOnSuccessListener {
+                    Log.d("CommunicationViewModel", "Route saved to Firestore")
+                }
+                .addOnFailureListener { e ->
+                    Log.e("CommunicationViewModel", "Error saving route", e)
+                }
+        }
+    }
+    
+    /**
+     * Remove a route from Firestore
+     */
+    private fun removeRouteFromFirestore(routeId: String) {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user != null) {
+            val db = FirebaseFirestore.getInstance()
+            db.collection("users")
+                .document(user.uid)
+                .collection("routes")
+                .document(routeId)
+                .delete()
+                .addOnSuccessListener {
+                    Log.d("CommunicationViewModel", "Route removed from Firestore")
+                }
+                .addOnFailureListener { e ->
+                    Log.e("CommunicationViewModel", "Error removing route", e)
+                }
+        }
+    }
+    
+    /**
+     * Load saved routes from Firestore
+     */
+    fun loadSavedRoutes() {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user != null) {
+            val db = FirebaseFirestore.getInstance()
+            db.collection("users")
+                .document(user.uid)
+                .collection("routes")
+                .get()
+                .addOnSuccessListener { documents ->
+                    val routes = documents.mapNotNull { it.toObject(SavedRoute::class.java) }
+                    _savedRoutes.value = routes
+                }
+                .addOnFailureListener { e ->
+                    Log.e("CommunicationViewModel", "Error loading routes", e)
+                }
+        }
+    }
     
     // Model initialization status
     private val _modelInitStatus = MutableStateFlow(ModelInitStatus.NOT_INITIALIZED)
