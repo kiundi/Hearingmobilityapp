@@ -386,8 +386,13 @@ fun TripDetailsScreen(
     }
     
     // Observe route points from ViewModel - add null check to prevent unresolved reference
-    /*val observedRoutePoints by tripDetailsViewModel.routePoints?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList<GeoPoint>()) }
-    
+    var observedRoutePoints by remember { mutableStateOf(emptyList<GeoPoint>()) }
+    LaunchedEffect(Unit) {
+        tripDetailsViewModel.routePoints.collect { points ->
+            observedRoutePoints = points
+        }
+    }
+
     // Update route points when they change in the ViewModel
     LaunchedEffect(observedRoutePoints) {
         if (observedRoutePoints.isNotEmpty()) {
@@ -400,7 +405,7 @@ fun TripDetailsScreen(
                 nextDirection = directions[0]
             }
         }
-    }*/
+    }
 
     // Constants already defined at the top of the function
     
