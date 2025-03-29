@@ -102,60 +102,121 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
         destinationLocation: GeoPoint
     ) {
         viewModelScope.launch {
-            // Find transit route using GTFS data
-            val transitRouteResult = withContext(Dispatchers.IO) {
-                transitRouter.findTransitRoute(sourceLocation, destinationLocation)
-            }
-            
-            if (transitRouteResult == null) {
-                Log.e("TripDetailsViewModel", "Failed to find transit route")
-                return@launch
-            }
-            
-            _transitRoute.value = transitRouteResult
-            
-            // Extract transit stops from the route
-            transitRouteResult.tripDetails?.let { details ->
-                _transitStops.value = details.stops
-                _nextStop.value = details.stops.firstOrNull()
-            }
-            
-            // Create trip route and save to database
-            val tripRoute = TripRoute(
-                id = UUID.randomUUID().toString(),
-                userId = "user_${System.currentTimeMillis()}",
-                source = source,
-                destination = destination,
-                selectedArea = selectedArea,
-                startTime = System.currentTimeMillis(),
-                status = "active",
-                routeId = transitRouteResult.tripDetails?.routeId,
-                tripId = transitRouteResult.tripDetails?.let { gtfsHelper.getTripIdForRoute(it.routeId) }
-            )
+            try {
+                // Find transit route using GTFS data
+                val transitRouteResult = withContext(Dispatchers.IO) {
+                    transitRouter.findTransitRoute(sourceLocation, destinationLocation)
+                }
+                
+                // Create a fallback direct route if transit route is null
+                if (transitRouteResult == null) {
+                    Log.w("TripDetailsViewModel", "Failed to find transit route, using direct route instead")
+                    // Create a simple direct route
+                    val directRoute = createDirectRoute(sourceLocation, destinationLocation)
+                    _transitRoute.value = directRoute
+                } else {
+                    _transitRoute.value = transitRouteResult
+                    
+                    // Extract transit stops from the route
+                    transitRouteResult.tripDetails?.let { details ->
+                        _transitStops.value = details.stops
+                        _nextStop.value = details.stops.firstOrNull()
+                    }
+                }
+                
+                // Create trip route and save to database
+                val tripRoute = TripRoute(
+                    id = UUID.randomUUID().toString(),
+                    userId = "user_${System.currentTimeMillis()}",
+                    source = source,
+                    destination = destination,
+                    selectedArea = selectedArea,
+                    startTime = System.currentTimeMillis(),
+                    status = "active",
+                    routeId = _transitRoute.value?.tripDetails?.routeId,
+                    tripId = _transitRoute.value?.tripDetails?.let { gtfsHelper.getTripIdForRoute(it.routeId) }
+                )
 
-            _navigationState.value = NavigationState(
-                currentLocation = sourceLocation,
-                destinationLocation = destinationLocation,
-                distance = calculateDistance(sourceLocation, destinationLocation),
-                estimatedTime = transitRouteResult.tripDetails?.let { 
-                    calculateEstimatedTimeFromSchedule(it.departureTime, it.arrivalTime) 
-                } ?: calculateEstimatedTime(sourceLocation, destinationLocation),
-                status = "active",
-                nextStop = _nextStop.value?.stopName,
-                routeName = transitRouteResult.tripDetails?.routeName,
-                tripHeadsign = transitRouteResult.tripDetails?.tripHeadsign
-            )
+                _navigationState.value = NavigationState(
+                    currentLocation = sourceLocation,
+                    destinationLocation = destinationLocation,
+                    distance = calculateDistance(sourceLocation, destinationLocation),
+                    estimatedTime = _transitRoute.value?.tripDetails?.let { 
+                        calculateEstimatedTimeFromSchedule(it.departureTime, it.arrivalTime) 
+                    } ?: calculateEstimatedTime(sourceLocation, destinationLocation),
+                    status = "active",
+                    nextStop = _nextStop.value?.stopName,
+                    routeName = _transitRoute.value?.tripDetails?.routeName,
+                    tripHeadsign = _transitRoute.value?.tripDetails?.tripHeadsign
+                )
 
-            val db = dbHelper.writableDatabase
-            db.insert(TripDatabaseHelper.TABLE_TRIPS, null, tripRoute.toContentValues())
-            _currentRoute.value = tripRoute
-            
-            // Start real-time updates
-            startRealtimeUpdates()
-            
-            // Start location tracking
-            startTripTracking(tripRoute.id)
+                val db = dbHelper.writableDatabase
+                db.insert(TripDatabaseHelper.TABLE_TRIPS, null, tripRoute.toContentValues())
+                _currentRoute.value = tripRoute
+                
+                // Start real-time updates
+                startRealtimeUpdates()
+                
+                // Start location tracking
+                startTripTracking(tripRoute.id)
+            } catch (e: Exception) {
+                Log.e("TripDetailsViewModel", "Error starting navigation: ${e.message}", e)
+                // Set a basic navigation state even if there's an error
+                _navigationState.value = NavigationState(
+                    currentLocation = sourceLocation,
+                    destinationLocation = destinationLocation,
+                    distance = calculateDistance(sourceLocation, destinationLocation),
+                    estimatedTime = calculateEstimatedTime(sourceLocation, destinationLocation),
+                    status = "error",
+                    errorMessage = "Could not start navigation: ${e.message}"
+                )
+            }
         }
+    }
+    
+    // Helper method to create a direct route when transit route is not available
+    private fun createDirectRoute(start: GeoPoint, end: GeoPoint): TransitRoute {
+        val directLine = org.osmdroid.views.overlay.Polyline().apply {
+            addPoint(start)
+            addPoint(end)
+            outlinePaint.color = android.graphics.Color.BLUE
+            outlinePaint.strokeWidth = 5.0f
+        }
+        
+        return TransitRoute(
+            walkToFirstStop = null,
+            transitPath = listOf(directLine),
+            walkFromLastStop = null,
+            tripDetails = TransitTripDetails(
+                routeId = "direct_route",
+                routeName = "Direct Route",
+                tripHeadsign = "Direct",
+                departureTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
+                arrivalTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(
+                    java.util.Date(System.currentTimeMillis() + (calculateEstimatedTime(start, end) * 60 * 1000).toLong())
+                ),
+                stops = listOf(
+                    TransitStop(
+                        stopId = "start",
+                        stopName = "Starting Point",
+                        arrivalTime = "",
+                        departureTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
+                        sequence = 1,
+                        location = start
+                    ),
+                    TransitStop(
+                        stopId = "end",
+                        stopName = "Destination",
+                        arrivalTime = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(
+                            java.util.Date(System.currentTimeMillis() + (calculateEstimatedTime(start, end) * 60 * 1000).toLong())
+                        ),
+                        departureTime = "",
+                        sequence = 2,
+                        location = end
+                    )
+                )
+            )
+        )
     }
 
     private fun startTripTracking(tripId: String) {
