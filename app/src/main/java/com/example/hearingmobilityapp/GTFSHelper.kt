@@ -53,18 +53,22 @@ class GTFSHelper(private val context: Context) {
         context.assets.open("stops.txt").bufferedReader().use { reader ->
             reader.readLine() // Skip header
             reader.forEachLine { line ->
-                val fields = line.split(",")
-                stops.add(StopEntity(
-                    stop_id = fields[0],
-                    stop_name = fields[2],
-                    stop_code = fields[3],
-                    stop_lat = fields[4].toDouble(),
-                    stop_lon = fields[5].toDouble(),
-                    zone_id = fields[6],
-                    stop_url = fields[7],
-                    location_type = fields[8].toIntOrNull(),
-                    parent_station = fields[9]
-                ))
+                try {
+                    val fields = line.split(",")
+                    stops.add(StopEntity(
+                        stop_id = fields[0],
+                        stop_name = fields[2],
+                        stop_code = fields[3],
+                        stop_lat = fields[4].toDoubleOrNull() ?: 0.0,
+                        stop_lon = fields[5].toDoubleOrNull() ?: 0.0,
+                        zone_id = fields[6],
+                        stop_url = fields[7],
+                        location_type = fields[8].toIntOrNull(),
+                        parent_station = fields[9]
+                    ))
+                } catch (e: Exception) {
+                    Log.e("GTFSHelper", "Error parsing stop line: $line - ${e.message}")
+                }
             }
         }
 
@@ -117,13 +121,17 @@ class GTFSHelper(private val context: Context) {
             context.assets.open("shapes.txt").bufferedReader().use { reader ->
                 reader.readLine() // Skip header
                 reader.forEachLine { line ->
-                    val fields = line.split(",")
-                    shapes.add(ShapePoint(
-                        shape_id = fields[0],
-                        shape_pt_lat = fields[1].toDouble(),
-                        shape_pt_lon = fields[2].toDouble(),
-                        shape_pt_sequence = fields[3].toIntOrNull() ?: 0
-                    ))
+                    try {
+                        val fields = line.split(",")
+                        shapes.add(ShapePoint(
+                            shape_id = fields[0],
+                            shape_pt_lat = fields[1].toDoubleOrNull() ?: 0.0,
+                            shape_pt_lon = fields[2].toDoubleOrNull() ?: 0.0,
+                            shape_pt_sequence = fields[3].toIntOrNull() ?: 0
+                        ))
+                    } catch (e: Exception) {
+                        Log.e("GTFSHelper", "Error parsing shape line: $line - ${e.message}")
+                    }
                 }
             }
         } catch (e: Exception) {
