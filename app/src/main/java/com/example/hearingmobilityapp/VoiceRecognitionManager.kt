@@ -1,19 +1,22 @@
 package com.example.hearingmobilityapp
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.vosk.Model
 import org.vosk.Recognizer
@@ -21,9 +24,6 @@ import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
 import java.io.File
 import java.io.IOException
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.core.content.ContextCompat
 
 
 /**
@@ -133,7 +133,9 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
     private fun processAudio(data: ByteArray) {
         Log.d(TAG, "Processing audio chunk: size=${data.size}, first few bytes=${data.take(4)}")
         try {
-            speechService?.feedAudioConten(data)
+            speechService?.let { service ->
+                service
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing audio: ${e.message}", e)
         }

@@ -38,6 +38,7 @@ firebaseDatabase = "21.0.0"
 uiTestAndroid = "1.7.8"
 ksp = "2.0.0-1.0.21"
 vosk = "0.3.47"
+voskVersion = "0.3.32"
 
 [libraries]
 accompanist-permissions = { module = "com.google.accompanist:accompanist-permissions", version.ref = "accompanistPermissions" }
@@ -86,6 +87,7 @@ ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", versio
 firebase-database = { group = "com.google.firebase", name = "firebase-database", version.ref = "firebaseDatabase" }
 androidx-ui-test-android = { group = "androidx.compose.ui", name = "ui-test-android", version.ref = "uiTestAndroid" }
 vosk = { module = "com.alphacephei:vosk-android", version.ref = "vosk" }
+vosk-vosk = { module = "org.vosk:vosk", version.ref = "voskVersion" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
