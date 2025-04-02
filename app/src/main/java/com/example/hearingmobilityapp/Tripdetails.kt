@@ -2,6 +2,7 @@ package com.example.hearingmobilityapp
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -111,25 +113,38 @@ fun TripDetailsScreen(
     val locationData = remember(tripInfo) {
         val parts = tripInfo.split("|")
         if (parts.size >= 7) {
-            TripLocation(
-                source = parts[0],
-                destination = parts[1],
-                area = parts[2],
-                sourceLat = parts[3].toDoubleOrNull() ?: -1.2921,
-                sourceLong = parts[4].toDoubleOrNull() ?: 36.8219,
-                destLat = parts[5].toDoubleOrNull() ?: -1.2858,
-                destLong = parts[6].toDoubleOrNull() ?: 36.8219
-            )
+            val sourceLat = parts[3].toDoubleOrNull()
+            val sourceLong = parts[4].toDoubleOrNull()
+            val destLat = parts[5].toDoubleOrNull()
+            val destLong = parts[6].toDoubleOrNull()
+            
+            // Only create TripLocation if all coordinates are valid
+            if (sourceLat != null && sourceLong != null && destLat != null && destLong != null) {
+                TripLocation(
+                    source = parts[0],
+                    destination = parts[1],
+                    area = parts[2],
+                    sourceLat = sourceLat,
+                    sourceLong = sourceLong,
+                    destLat = destLat,
+                    destLong = destLong
+                )
+            } else {
+                null
+            }
         } else {
             null
         }
     }
 
-// Use the actual coordinates
+    // Use the actual coordinates from locationData
     val currentLocation = locationData?.let {
         GeoPoint(it.sourceLat, it.sourceLong)
-    } ?: GeoPoint(-1.2921, 36.8219)
+    } ?: GeoPoint(-1.286389, 36.817223) // Default to Nairobi coordinates if invalid
 
+    var destinationPoint = locationData?.let {
+        GeoPoint(it.destLat, it.destLong)
+    } ?: GeoPoint(-1.2858, 36.8219) // Default to Nairobi coordinates if invalid
 
     // Parse source and destination from tripInfo
     val (source, destination, selectedArea) = remember(tripInfo) {
@@ -141,7 +156,6 @@ fun TripDetailsScreen(
         }
     }
 
-    val destinationLocation by remember { mutableStateOf(navigationState.destinationLocation ?: GeoPoint(-1.2858, 36.8219)) }
     val distanceToDestination by tripDetailsViewModel.navigationState.map { it.distance ?: 0f }.collectAsState(initial = 0f)
     val estimatedTimeMinutes by tripDetailsViewModel.navigationState.map { it.estimatedTime ?: 0 }.collectAsState(initial = 0)
 
@@ -156,7 +170,7 @@ fun TripDetailsScreen(
             destination = destination,
             selectedArea = selectedArea,
             sourceLocation = currentLocation,
-            destinationLocation = destinationLocation
+            destinationLocation = destinationPoint
         )
     }
 
@@ -172,7 +186,6 @@ fun TripDetailsScreen(
 
     val context = LocalContext.current
     val locationManager = remember { context.getSystemService(Context.LOCATION_SERVICE) as LocationManager }
-    var destinationPoint by remember { mutableStateOf(GeoPoint(-1.2858, 36.8219)) }
 
         // Constants as regular variables, not vals to avoid compilation errors
     val vibrationPermissionRequestCode = 101
@@ -533,7 +546,7 @@ fun TripDetailsScreen(
             ) {
                 // Back button
                 IconButton(onClick = { 
-                    // Navigate to the Navigation screen instead of just popping back
+                    // Navigate to the Navigation screen
                     navController?.navigate(Screen.Navigation.route) {
                         // Clear the back stack up to the Navigation screen
                         popUpTo(Screen.Navigation.route) { inclusive = false }
@@ -761,6 +774,84 @@ fun TripDetailsScreen(
 
             // Safety Button at the bottom
             Spacer(modifier = Modifier.weight(1f))
+            
+            // Share Location and Report Buttons Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                // Share Location Button
+                Button(
+                    onClick = {
+                        // Share location through WhatsApp or SMS
+                        val locationMessage = "I'm currently at: https://maps.google.com/?q=${currentLocation.latitude},${currentLocation.longitude}"
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, locationMessage)
+                        }
+                        val chooser = Intent.createChooser(intent, "Share Location")
+                        context.startActivity(chooser)
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF4CAF50)
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = "Share Location",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Share Location",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Report Button
+                Button(
+                    onClick = {
+                        navController?.navigate("ReportScreen")
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFF44336)
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Report",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Report",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
             SafetyButton(selectedArea = selectedArea)
         }
 
@@ -916,10 +1007,15 @@ fun OSMDroidMap(
                 setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
                 controller.setZoom(15.0)
-                clipToOutline = true  // ensure this view is clipped to its outline
+                clipToOutline = true
 
-                // Set initial position to the source location if available, otherwise use Nairobi
-                controller.setCenter(currentLocation)
+                // Validate coordinates before setting center
+                if (currentLocation.latitude != 0.0 && currentLocation.longitude != 0.0) {
+                    controller.setCenter(currentLocation)
+                } else {
+                    // Fallback to default coordinates if invalid
+                    controller.setCenter(GeoPoint(-1.286389, 36.817223))
+                }
 
                 mapView = this
             }
@@ -929,28 +1025,32 @@ fun OSMDroidMap(
         // Update map markers and route
         mapView.overlays.clear()
 
-        // Current location marker
-        val currentLocationMarker = Marker(mapView).apply {
-            position = currentLocation
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            title = "Current Location"
-            icon = ContextCompat.getDrawable(context, R.drawable.ic_location)
-            setInfoWindow(null)
+        // Current location marker - only add if coordinates are valid
+        if (currentLocation.latitude != 0.0 && currentLocation.longitude != 0.0) {
+            val currentLocationMarker = Marker(mapView).apply {
+                position = currentLocation
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                title = "Current Location"
+                icon = ContextCompat.getDrawable(context, R.drawable.ic_location)
+                setInfoWindow(null)
+            }
+            mapView.overlays.add(currentLocationMarker)
         }
-        mapView.overlays.add(currentLocationMarker)
 
-        // Destination marker
-        val destinationMarker = Marker(mapView).apply {
-            position = destination
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            title = selectedArea
-            icon = ContextCompat.getDrawable(context, getIconForArea(selectedArea))
-            setInfoWindow(null)
+        // Destination marker - only add if coordinates are valid
+        if (destination.latitude != 0.0 && destination.longitude != 0.0) {
+            val destinationMarker = Marker(mapView).apply {
+                position = destination
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                title = selectedArea
+                icon = ContextCompat.getDrawable(context, getIconForArea(selectedArea))
+                setInfoWindow(null)
+            }
+            mapView.overlays.add(destinationMarker)
         }
-        mapView.overlays.add(destinationMarker)
 
-        // Route polyline with improved styling
-        if (routePoints.isNotEmpty()) {
+        // Route polyline with improved styling - only add if we have valid points
+        if (routePoints.isNotEmpty() && routePoints.all { it.latitude != 0.0 && it.longitude != 0.0 }) {
             val routeLine = Polyline().apply {
                 setPoints(routePoints)
                 outlinePaint.color = AndroidColor.parseColor("#007AFF")
@@ -962,21 +1062,17 @@ fun OSMDroidMap(
             mapView.overlays.add(routeLine)
         }
 
-        // Center map to show both markers with proper bounds check - optimized to prevent ANR
+        // Center map to show both markers with proper bounds check
         try {
-            // Use a coroutine to handle this asynchronously instead of withContext
             coroutineScope.launch(Dispatchers.Default) {
-                // Make sure we have valid coordinates before creating a bounding box
                 if (currentLocation.latitude != 0.0 && currentLocation.longitude != 0.0 &&
                     destination.latitude != 0.0 && destination.longitude != 0.0) {
                     
-                    // Use a more reliable method to create bounding box
                     val minLat = Math.min(currentLocation.latitude, destination.latitude)
                     val maxLat = Math.max(currentLocation.latitude, destination.latitude)
                     val minLon = Math.min(currentLocation.longitude, destination.longitude)
                     val maxLon = Math.max(currentLocation.longitude, destination.longitude)
                     
-                    // Add some padding to the bounding box
                     val latPadding = (maxLat - minLat) * 0.3
                     val lonPadding = (maxLon - minLon) * 0.3
                     
@@ -987,28 +1083,23 @@ fun OSMDroidMap(
                         minLon - lonPadding
                     )
                     
-                    // Apply the bounding box with animation - on main thread but after computation
                     withContext(Dispatchers.Main) {
-                        // Use a shorter animation duration to prevent ANR
                         mapView.zoomToBoundingBox(boundingBox, true, 50)
                         
-                        // Ensure we're not zoomed out too far
                         if (mapView.zoomLevelDouble < 10) {
                             mapView.controller.setZoom(15.0)
                         }
                     }
                 } else {
-                    // If we have invalid coordinates, just center on the current location with a default zoom
                     withContext(Dispatchers.Main) {
-                        mapView.controller.setCenter(currentLocation)
+                        mapView.controller.setCenter(GeoPoint(-1.286389, 36.817223))
                         mapView.controller.setZoom(15.0)
                     }
                 }
             }
         } catch (e: Exception) {
             Log.e("TripDetails", "Error setting map bounds: ${e.message}")
-            // Fallback to a simple center on current location
-            mapView.controller.setCenter(currentLocation)
+            mapView.controller.setCenter(GeoPoint(-1.286389, 36.817223))
             mapView.controller.setZoom(15.0)
         }
 

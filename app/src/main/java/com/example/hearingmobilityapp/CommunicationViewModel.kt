@@ -53,89 +53,8 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     private val _partialTranscription = MutableStateFlow("")
     val partialTranscription: StateFlow<String> = _partialTranscription
 
-    /**
-     * Save a route to the saved routes list
-     */
-    fun saveRoute(startLocation: String, endLocation: String, destinationType: String) {
-        val newRoute = SavedRoute(
-            startLocation = startLocation,
-            endLocation = endLocation,
-            destinationType = destinationType
-        )
-        _savedRoutes.value = _savedRoutes.value + newRoute
-        saveRouteToFirestore(newRoute)
-    }
-
-    /**
-     * Remove a route from the saved routes list
-     */
-    fun removeRoute(routeId: String) {
-        _savedRoutes.value = _savedRoutes.value.filter { it.id != routeId }
-        removeRouteFromFirestore(routeId)
-    }
-
-    /**
-     * Save a route to Firestore
-     */
-    private fun saveRouteToFirestore(route: SavedRoute) {
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user != null) {
-            val db = FirebaseFirestore.getInstance()
-            db.collection("users")
-                .document(user.uid)
-                .collection("routes")
-                .document(route.id)
-                .set(route)
-                .addOnSuccessListener {
-                    Log.d("CommunicationViewModel", "Route saved to Firestore")
-                }
-                .addOnFailureListener { e ->
-                    Log.e("CommunicationViewModel", "Error saving route", e)
-                }
-        }
-    }
-
-    /**
-     * Remove a route from Firestore
-     */
-    private fun removeRouteFromFirestore(routeId: String) {
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user != null) {
-            val db = FirebaseFirestore.getInstance()
-            db.collection("users")
-                .document(user.uid)
-                .collection("routes")
-                .document(routeId)
-                .delete()
-                .addOnSuccessListener {
-                    Log.d("CommunicationViewModel", "Route removed from Firestore")
-                }
-                .addOnFailureListener { e ->
-                    Log.e("CommunicationViewModel", "Error removing route", e)
-                }
-        }
-    }
-
-    /**
-     * Load saved routes from Firestore
-     */
-    fun loadSavedRoutes() {
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user != null) {
-            val db = FirebaseFirestore.getInstance()
-            db.collection("users")
-                .document(user.uid)
-                .collection("routes")
-                .get()
-                .addOnSuccessListener { documents ->
-                    val routes = documents.mapNotNull { it.toObject(SavedRoute::class.java) }
-                    _savedRoutes.value = routes
-                }
-                .addOnFailureListener { e ->
-                    Log.e("CommunicationViewModel", "Error loading routes", e)
-                }
-        }
-    }
+    private val previousRoutes = mutableListOf<PreviousRoute>()
+    private val gtfsHelper = GTFSHelper(application.applicationContext)
 
     // Model initialization status
     private val _modelInitStatus = MutableStateFlow(ModelInitStatus.NOT_INITIALIZED)
@@ -523,8 +442,46 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         favoriteMessagesListener?.remove()
         voiceRecognitionManager.release() // Release voice recognition resources
     }
-}
 
+    fun saveRoute(source: String, destination: String, selectedArea: String) {
+        val route = PreviousRoute(
+            id = UUID.randomUUID().toString(),
+            source = source,
+            destination = destination,
+            selectedArea = selectedArea,
+            timestamp = System.currentTimeMillis()
+        )
+        previousRoutes.add(route)
+    }
+
+    fun getPreviousRoutes(): List<PreviousRoute> {
+        return previousRoutes.sortedByDescending { it.timestamp }
+    }
+
+    fun getRouteInfo(source: String, destination: String): String {
+        return gtfsHelper.getRouteInfo(source, destination)
+    }
+
+    fun getStopInfo(stopName: String): String {
+        return gtfsHelper.getStopInfo(stopName)
+    }
+
+    fun getStopCoordinates(stopName: String): Pair<Double, Double> {
+        return gtfsHelper.getStopCoordinates(stopName)
+    }
+
+    fun getRoutePoints(source: String, destination: String): List<Pair<Double, Double>> {
+        return gtfsHelper.getRoutePoints(source, destination)
+    }
+
+    fun getRouteTime(source: String, destination: String): String {
+        return gtfsHelper.getRouteTime(source, destination)
+    }
+
+    fun removeRoute(routeId: String) {
+        previousRoutes.removeAll { it.id == routeId }
+    }
+}
 
 enum class ModelInitStatus {
     NOT_INITIALIZED,

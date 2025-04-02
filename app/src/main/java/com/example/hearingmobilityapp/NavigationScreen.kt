@@ -27,6 +27,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -69,14 +71,93 @@ import org.osmdroid.views.overlay.Polyline
 import com.example.hearingmobilityapp.SharedViewModel
 import com.example.hearingmobilityapp.CommunicationViewModel
 import kotlinx.coroutines.launch
+import android.location.Geocoder
+import java.util.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Send
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.material3.MaterialTheme
+import java.text.SimpleDateFormat
 
-// Use SharedViewModel in place of the missing SharedViewModel.
+data class PreviousRoute(
+    val id: String,
+    val source: String,
+    val destination: String,
+    val selectedArea: String,
+    val timestamp: Long
+)
+
+@Composable
+fun PreviousRoutesSection(
+    previousRoutes: List<PreviousRoute>,
+    onRouteSelected: (PreviousRoute) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "Previous Routes",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            
+            previousRoutes.forEach { route ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clickable { onRouteSelected(route) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFFF5F5F5)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "${route.source} → ${route.destination}",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Area: ${route.selectedArea}",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                        Text(
+                            text = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+                                .format(Date(route.timestamp)),
+                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun NavigationScreen(
     navController: NavController,
     sharedViewModel: SharedViewModel,
     communicationViewModel: CommunicationViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     var source by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
     var showSavedRoutes by remember { mutableStateOf(false) }
@@ -84,7 +165,6 @@ fun NavigationScreen(
     var selectedArea by remember { mutableStateOf("Destination") }
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
-    val context = LocalContext.current
     var mapView: MapView? by remember { mutableStateOf(null) }
     var sourcePoint by remember { mutableStateOf<GeoPoint?>(null) }
     var destPoint by remember { mutableStateOf<GeoPoint?>(null) }
@@ -99,6 +179,14 @@ fun NavigationScreen(
     var navigationStarted by remember { mutableStateOf(false) }
     var nextTurn by remember { mutableStateOf("") }
     var distanceToNextTurn by remember { mutableStateOf("") }
+
+    // Add previous routes state
+    var previousRoutes by remember { mutableStateOf<List<PreviousRoute>>(emptyList()) }
+    
+    // Load previous routes
+    LaunchedEffect(Unit) {
+        previousRoutes = communicationViewModel.getPreviousRoutes()
+    }
 
     LaunchedEffect(Unit) {
         val permissions = arrayOf(
@@ -290,8 +378,8 @@ fun NavigationScreen(
                                         map.overlays.clear()
 
                                         try {
-                                            val sourceCoords = getCoordinatesForLocation(source)
-                                            val destCoords = getCoordinatesForLocation(destination)
+                                            val sourceCoords = getCoordinatesForLocation(context, source)
+                                            val destCoords = getCoordinatesForLocation(context, destination)
 
                                             // Add source marker
                                             Marker(map).apply {
@@ -377,6 +465,17 @@ fun NavigationScreen(
                 }
             }
 
+            // Add Previous Routes Section
+            PreviousRoutesSection(
+                previousRoutes = previousRoutes,
+                onRouteSelected = { route ->
+                    source = route.source
+                    destination = route.destination
+                    selectedArea = route.selectedArea
+                    routeSelected = true
+                }
+            )
+
             // Action Buttons Row
             if (routeSelected || (source.isNotBlank() && destination.isNotBlank())) {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -411,8 +510,8 @@ fun NavigationScreen(
                     Button(
                         onClick = {
                             try {
-                                val sourceCoords = getCoordinatesForLocation(source)
-                                val destCoords = getCoordinatesForLocation(destination)
+                                val sourceCoords = getCoordinatesForLocation(context, source)
+                                val destCoords = getCoordinatesForLocation(context, destination)
                                 val tripData = "$source|$destination|$selectedArea|${sourceCoords.first}|${sourceCoords.second}|${destCoords.first}|${destCoords.second}"
                                 sharedViewModel.updateMessage(tripData)
                                 navController.navigate("TripDetailsScreen")
@@ -422,7 +521,7 @@ fun NavigationScreen(
                                 }
                             }
                         }
-                    ){
+                    ) {
                         Text(
                             text = "Start Trip",
                             color = Color.White,
@@ -432,6 +531,16 @@ fun NavigationScreen(
                     }
                 }
             }
+
+            // Add ChatSection with proper parameters
+            ChatSection(
+                communicationViewModel = communicationViewModel,
+                source = source,
+                destination = destination,
+                onSendMessage = { message ->
+                    // Handle message sending if needed
+                }
+            )
         }
 
         // Overlay: Saved Routes Sidebar.
@@ -575,7 +684,7 @@ private val locationMap = mutableMapOf<String, Location>().apply {
 }
 
 @OptIn(UnstableApi::class)
-private fun getCoordinatesForLocation(location: String): Pair<Double, Double> {
+private fun getCoordinatesForLocation(context: Context, location: String): Pair<Double, Double> {
     // Handle special cases that might cause parsing errors
     if (location.contains("ZONE", ignoreCase = true)) {
         // Return default coordinates for Nairobi if location contains ZONE
@@ -586,15 +695,26 @@ private fun getCoordinatesForLocation(location: String): Pair<Double, Double> {
     val normalizedLocation = location.trim().lowercase()
 
     return try {
-        // Get location from map or use default coordinates for Nairobi
+        // First try to get from our predefined map
         val coordinates = locationMap[normalizedLocation]
-            ?: locationMap["nairobi"]
-            ?: android.location.Location("gps").apply { latitude = -1.286389; longitude = 36.817223 }
+        if (coordinates != null) {
+            return Pair(coordinates.latitude, coordinates.longitude)
+        }
 
-        Pair(coordinates.latitude, coordinates.longitude)
+        // If not found in map, use Geocoder to get coordinates
+        val geocoder = Geocoder(context, Locale.getDefault())
+        val addresses = geocoder.getFromLocationName(location, 1)
+        
+        if (addresses != null && addresses.isNotEmpty()) {
+            val address = addresses[0]
+            Pair(address.latitude, address.longitude)
+        } else {
+            // If geocoding fails, return default coordinates for Nairobi
+            Pair(-1.286389, 36.817223)
+        }
     } catch (e: Exception) {
-        Log.e("NavigationScreen", "Error getting coordinates for $location: ${e.message}")
-        // Return default coordinates for Nairobi if there's any error
+        Log.e("NavigationScreen", "Error getting coordinates for location: $location", e)
+        // Return default coordinates for Nairobi in case of error
         Pair(-1.286389, 36.817223)
     }
 }
@@ -751,4 +871,220 @@ private fun calculateNextTurn(current: GeoPoint, dest: GeoPoint): Pair<String, D
     }
     
     return Pair(direction, distance)
+}
+
+@Composable
+fun ChatSection(
+    communicationViewModel: CommunicationViewModel,
+    source: String,
+    destination: String,
+    onSendMessage: (String) -> Unit
+) {
+    var message by remember { mutableStateOf("") }
+    var chatMessages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+    ) {
+        // Chat messages
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                .padding(8.dp)
+        ) {
+            items(chatMessages) { message ->
+                ChatMessageItem(message = message)
+            }
+        }
+        
+        // Input field
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = message,
+                onValueChange = { message = it },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Ask about routes or stops...") },
+                shape = RoundedCornerShape(24.dp)
+            )
+            
+            IconButton(
+                onClick = {
+                    if (message.isNotBlank()) {
+                        // Add user message
+                        chatMessages = chatMessages + ChatMessage(
+                            text = message,
+                            isUser = true
+                        )
+                        
+                        // Get response from GTFS data
+                        val response = when {
+                            message.contains("route", ignoreCase = true) -> {
+                                communicationViewModel.getRouteInfo(source, destination)
+                            }
+                            message.contains("stop", ignoreCase = true) -> {
+                                val stopName = message.split("stop", ignoreCase = true)
+                                    .lastOrNull()?.trim() ?: ""
+                                communicationViewModel.getStopInfo(stopName)
+                            }
+                            else -> "Please ask about routes or stops. For example: 'What's the route to X?' or 'What's the next bus at Y stop?'"
+                        }
+                        
+                        // Add system response
+                        chatMessages = chatMessages + ChatMessage(
+                            text = response,
+                            isUser = false
+                        )
+                        
+                        message = ""
+                    }
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Send,
+                    contentDescription = "Send",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+data class ChatMessage(
+    val text: String,
+    val isUser: Boolean
+)
+
+@Composable
+fun ChatMessageItem(message: ChatMessage) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = if (message.isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+            ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Text(
+                text = message.text,
+                color = if (message.isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun SavedRoutesScreen(
+    viewModel: CommunicationViewModel,
+    onClose: () -> Unit,
+    onRouteSelected: (SavedRoute) -> Unit
+) {
+    val savedRoutes by viewModel.savedRoutes.observeAsState(initial = emptyList())
+    val coroutineScope = rememberCoroutineScope()
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color.White
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Saved Routes",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = onClose) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_close),
+                        contentDescription = "Close"
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (savedRoutes.isEmpty()) {
+                Text(
+                    text = "No saved routes yet",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    color = Color.Gray
+                )
+            } else {
+                LazyColumn {
+                    items(savedRoutes) { route ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color(0xFFF5F5F5)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            ) {
+                                Text(
+                                    text = "${route.startLocation} → ${route.endLocation}",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Type: ${route.destinationType}",
+                                    fontSize = 14.sp,
+                                    color = Color.Gray
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Button(
+                                        onClick = { onRouteSelected(route) },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFF007AFF)
+                                        )
+                                    ) {
+                                        Text("Select")
+                                    }
+                                    Button(
+                                        onClick = {
+                                            viewModel.removeRoute(route.id)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFDC3545)
+                                        )
+                                    ) {
+                                        Text("Delete")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

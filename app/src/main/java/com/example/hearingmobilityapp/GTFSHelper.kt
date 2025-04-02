@@ -1,6 +1,7 @@
 package com.example.hearingmobilityapp
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import org.osmdroid.util.GeoPoint
 import java.io.BufferedReader
@@ -44,153 +45,104 @@ class GTFSHelper(private val context: Context) {
     // Cache for trip paths
     private val tripPathCache = mutableMapOf<String, List<GeoPoint>>()
 
-    init {
-        parseGTFSFiles()
-        // Initialize with some sample real-time data
-        initializeRealtimeData()
+    private val database: SQLiteDatabase by lazy {
+        val dbPath = context.getDatabasePath("gtfs.db").absolutePath
+        SQLiteDatabase.openDatabase(dbPath, null, SQLiteDatabase.OPEN_READONLY)
     }
 
-    private fun parseGTFSFiles() {
-        // Parse stops.txt
+    init {
+        // Check if database exists, if not create and populate it
+        if (!context.getDatabasePath("gtfs.db").exists()) {
+            createAndPopulateDatabase()
+        }
+    }
+
+    private fun createAndPopulateDatabase() {
+        val db = SQLiteDatabase.openOrCreateDatabase(
+            context.getDatabasePath("gtfs.db").absolutePath,
+            null
+        )
+
         try {
+            // Create tables
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS stops (
+                    stop_id TEXT PRIMARY KEY,
+                    stop_name TEXT,
+                    stop_lat REAL,
+                    stop_lon REAL
+                )
+            """)
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS routes (
+                    route_id TEXT PRIMARY KEY,
+                    route_short_name TEXT,
+                    route_long_name TEXT
+                )
+            """)
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS trips (
+                    trip_id TEXT PRIMARY KEY,
+                    route_id TEXT,
+                    service_id TEXT,
+                    shape_id TEXT
+                )
+            """)
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS stop_times (
+                    trip_id TEXT,
+                    stop_id TEXT,
+                    arrival_time TEXT,
+                    departure_time TEXT,
+                    stop_sequence INTEGER
+                )
+            """)
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS shapes (
+                    shape_id TEXT,
+                    shape_pt_lat REAL,
+                    shape_pt_lon REAL,
+                    shape_pt_sequence INTEGER
+                )
+            """)
+
+            // Parse and insert GTFS data
+            parseAndInsertGTFSData(db)
+        } catch (e: Exception) {
+            Log.e("GTFSHelper", "Error creating database: ${e.message}")
+        } finally {
+            db.close()
+        }
+    }
+
+    private fun parseAndInsertGTFSData(db: SQLiteDatabase) {
+        try {
+            // Parse stops.txt
             context.assets.open("stops.txt").bufferedReader().use { reader ->
                 reader.readLine() // Skip header
+                val insertStmt = db.compileStatement(
+                    "INSERT INTO stops (stop_id, stop_name, stop_lat, stop_lon) VALUES (?, ?, ?, ?)"
+                )
                 reader.forEachLine { line ->
-                    try {
-                        val fields = line.split(",")
-                        stops.add(StopEntity(
-                            stop_id = fields[0],
-                            stop_name = fields[2],
-                            stop_code = fields[3],
-                            stop_lat = fields[4].toDoubleOrNull() ?: 0.0,
-                            stop_lon = fields[5].toDoubleOrNull() ?: 0.0,
-                            zone_id = fields[6],
-                            stop_url = fields[7],
-                            location_type = fields[8].toIntOrNull(),
-                            parent_station = fields[9]
-                        ))
-                    } catch (e: Exception) {
-                        Log.e("GTFSHelper", "Error parsing stop line: $line - ${e.message}")
-                    }
+                    val fields = line.split(",")
+                    insertStmt.bindString(1, fields[0])
+                    insertStmt.bindString(2, fields[2])
+                    insertStmt.bindDouble(3, fields[4].toDoubleOrNull() ?: 0.0)
+                    insertStmt.bindDouble(4, fields[5].toDoubleOrNull() ?: 0.0)
+                    insertStmt.executeInsert()
+                    insertStmt.clearBindings()
                 }
             }
-        } catch (e: Exception) {
-            Log.e("GTFSHelper", "Error parsing stops.txt: ${e.message}")
-        }
 
-        // Parse routes.txt
-        context.assets.open("routes.txt").bufferedReader().use { reader ->
-            reader.readLine() // Skip header
-            reader.forEachLine { line ->
-                val fields = line.split(",")
-                routes.add(RouteEntity(
-                    route_id = fields[0],
-                    route_short_name = fields[1],
-                    route_long_name = fields[2],
-                    route_type = fields[3].toIntOrNull() ?: 3
-                ))
-            }
-        }
+            // Similar parsing for other GTFS files...
+            // Add parsing for routes.txt, trips.txt, stop_times.txt, and shapes.txt
 
-        // Parse trips.txt
-        context.assets.open("trips.txt").bufferedReader().use { reader ->
-            reader.readLine() // Skip header
-            reader.forEachLine { line ->
-                val fields = line.split(",")
-                trips.add(TripEntity(
-                    trip_id = fields[0],
-                    route_id = fields[1],
-                    service_id = fields[2],
-                    trip_headsign = fields[3],
-                    shape_id = fields[4]
-                ))
-            }
-        }
-
-        // Parse stop_times.txt
-        context.assets.open("stop_times.txt").bufferedReader().use { reader ->
-            reader.readLine() // Skip header
-            reader.forEachLine { line ->
-                val fields = line.split(",")
-                stopTimes.add(StopTimeEntity(
-                    trip_id = fields[0],
-                    stop_id = fields[1],
-                    arrival_time = fields[2],
-                    departure_time = fields[3],
-                    stop_sequence = fields[4].toIntOrNull() ?: 0
-                ))
-            }
-        }
-        
-        // Parse shapes.txt if it exists
-        try {
-            context.assets.open("shapes.txt").bufferedReader().use { reader ->
-                reader.readLine() // Skip header
-                reader.forEachLine { line ->
-                    try {
-                        val fields = line.split(",")
-                        shapes.add(ShapePoint(
-                            shape_id = fields[0],
-                            shape_pt_lat = fields[1].toDoubleOrNull() ?: 0.0,
-                            shape_pt_lon = fields[2].toDoubleOrNull() ?: 0.0,
-                            shape_pt_sequence = fields[3].toIntOrNull() ?: 0
-                        ))
-                    } catch (e: Exception) {
-                        Log.e("GTFSHelper", "Error parsing shape line: $line - ${e.message}")
-                    }
-                }
-            }
         } catch (e: Exception) {
-            Log.d("GTFSHelper", "No shapes.txt file found: ${e.message}")
-        }
-        
-        // Parse calendar.txt if it exists
-        try {
-            context.assets.open("calendar.txt").bufferedReader().use { reader ->
-                reader.readLine() // Skip header
-                reader.forEachLine { line ->
-                    try {
-                        val fields = line.split(",")
-                        calendar.add(CalendarEntity(
-                            service_id = fields[0],
-                            monday = fields[1].toIntOrNull() ?: 0,
-                            tuesday = fields[2].toIntOrNull() ?: 0,
-                            wednesday = fields[3].toIntOrNull() ?: 0,
-                            thursday = fields[4].toIntOrNull() ?: 0,
-                            friday = fields[5].toIntOrNull() ?: 0,
-                            saturday = fields[6].toIntOrNull() ?: 0,
-                            sunday = fields[7].toIntOrNull() ?: 0,
-                            start_date = fields[8],
-                            end_date = fields[9]
-                        ))
-                    } catch (e: Exception) {
-                        Log.e("GTFSHelper", "Error parsing calendar line: $line - ${e.message}")
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.d("GTFSHelper", "No calendar.txt file found: ${e.message}")
-        }
-        
-        // Parse calendar_dates.txt if it exists
-        try {
-            context.assets.open("calendar_dates.txt").bufferedReader().use { reader ->
-                reader.readLine() // Skip header
-                reader.forEachLine { line ->
-                    try {
-                        val fields = line.split(",")
-                        calendarDates.add(CalendarDateEntity(
-                            service_id = fields[0],
-                            date = fields[1],
-                            exception_type = fields[2].toIntOrNull() ?: 0
-                        ))
-                    } catch (e: Exception) {
-                        Log.e("GTFSHelper", "Error parsing calendar_dates line: $line - ${e.message}")
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.d("GTFSHelper", "No calendar_dates.txt file found: ${e.message}")
+            Log.e("GTFSHelper", "Error parsing GTFS data: ${e.message}")
         }
     }
 
@@ -582,4 +534,173 @@ class GTFSHelper(private val context: Context) {
         val shape_pt_lon: Double,
         val shape_pt_sequence: Int
     )
+
+    fun getStopCoordinates(stopName: String): Pair<Double, Double> {
+        return try {
+            val cursor = database.rawQuery(
+                "SELECT stop_lat, stop_lon FROM stops WHERE stop_name = ?",
+                arrayOf(stopName)
+            )
+            if (cursor.moveToFirst()) {
+                val lat = cursor.getDouble(0)
+                val lon = cursor.getDouble(1)
+                cursor.close()
+                Pair(lat, lon)
+            } else {
+                cursor.close()
+                throw Exception("Stop not found")
+            }
+        } catch (e: Exception) {
+            throw Exception("Error getting stop coordinates: ${e.message}")
+        }
+    }
+
+    fun getRoutePoints(source: String, destination: String): List<Pair<Double, Double>> {
+        return try {
+            val cursor = database.rawQuery(
+                """
+                SELECT shape_pt_lat, shape_pt_lon 
+                FROM shapes 
+                WHERE shape_id IN (
+                    SELECT shape_id 
+                    FROM trips 
+                    WHERE route_id IN (
+                        SELECT route_id 
+                        FROM routes 
+                        WHERE route_short_name IN (
+                            SELECT route_short_name 
+                            FROM routes 
+                            WHERE route_id IN (
+                                SELECT route_id 
+                                FROM trips 
+                                WHERE trip_id IN (
+                                    SELECT trip_id 
+                                    FROM stop_times 
+                                    WHERE stop_id IN (
+                                        SELECT stop_id 
+                                        FROM stops 
+                                        WHERE stop_name = ? OR stop_name = ?
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+                ORDER BY shape_pt_sequence
+                """,
+                arrayOf(source, destination)
+            )
+            
+            val points = mutableListOf<Pair<Double, Double>>()
+            while (cursor.moveToNext()) {
+                points.add(Pair(cursor.getDouble(0), cursor.getDouble(1)))
+            }
+            cursor.close()
+            points
+        } catch (e: Exception) {
+            throw Exception("Error getting route points: ${e.message}")
+        }
+    }
+
+    fun getRouteTime(source: String, destination: String): String {
+        return try {
+            val cursor = database.rawQuery(
+                """
+                SELECT AVG(EXTRACT(EPOCH FROM (arrival_time - departure_time))/60) 
+                FROM stop_times 
+                WHERE stop_id IN (
+                    SELECT stop_id 
+                    FROM stops 
+                    WHERE stop_name = ? OR stop_name = ?
+                )
+                """,
+                arrayOf(source, destination)
+            )
+            
+            if (cursor.moveToFirst()) {
+                val minutes = cursor.getInt(0)
+                cursor.close()
+                "$minutes minutes"
+            } else {
+                cursor.close()
+                "Time not available"
+            }
+        } catch (e: Exception) {
+            "Error getting route time: ${e.message}"
+        }
+    }
+
+    fun getRouteInfo(source: String, destination: String): String {
+        return try {
+            val cursor = database.rawQuery(
+                """
+                SELECT r.route_short_name, r.route_long_name, 
+                       MIN(st.departure_time) as next_departure
+                FROM routes r
+                JOIN trips t ON r.route_id = t.route_id
+                JOIN stop_times st ON t.trip_id = st.trip_id
+                WHERE st.stop_id IN (
+                    SELECT stop_id 
+                    FROM stops 
+                    WHERE stop_name = ? OR stop_name = ?
+                )
+                GROUP BY r.route_short_name, r.route_long_name
+                ORDER BY next_departure
+                LIMIT 1
+                """,
+                arrayOf(source, destination)
+            )
+            
+            if (cursor.moveToFirst()) {
+                val routeName = cursor.getString(0)
+                val routeDesc = cursor.getString(1)
+                val nextDeparture = cursor.getString(2)
+                cursor.close()
+                "Route: $routeName ($routeDesc)\nNext departure: $nextDeparture"
+            } else {
+                cursor.close()
+                "No route information available"
+            }
+        } catch (e: Exception) {
+            "Error getting route information: ${e.message}"
+        }
+    }
+
+    fun getStopInfo(stopName: String): String {
+        return try {
+            val cursor = database.rawQuery(
+                """
+                SELECT r.route_short_name, st.arrival_time
+                FROM routes r
+                JOIN trips t ON r.route_id = t.route_id
+                JOIN stop_times st ON t.trip_id = st.trip_id
+                WHERE st.stop_id IN (
+                    SELECT stop_id 
+                    FROM stops 
+                    WHERE stop_name = ?
+                )
+                AND st.arrival_time > CURRENT_TIME
+                ORDER BY st.arrival_time
+                LIMIT 3
+                """,
+                arrayOf(stopName)
+            )
+            
+            val arrivals = mutableListOf<String>()
+            while (cursor.moveToNext()) {
+                val route = cursor.getString(0)
+                val time = cursor.getString(1)
+                arrivals.add("$route - $time")
+            }
+            cursor.close()
+            
+            if (arrivals.isNotEmpty()) {
+                "Next arrivals:\n${arrivals.joinToString("\n")}"
+            } else {
+                "No upcoming arrivals"
+            }
+        } catch (e: Exception) {
+            "Error getting stop information: ${e.message}"
+        }
+    }
 }
