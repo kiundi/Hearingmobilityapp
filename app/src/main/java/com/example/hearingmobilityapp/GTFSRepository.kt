@@ -12,15 +12,16 @@ class GTFSRepository(private val db: GTFSDatabase) {
     suspend fun loadGTFSData(context: Context) {
         withContext(Dispatchers.IO) {
             // Clear existing data
-            db.stopDao().deleteAllStops()
             db.stopDao().deleteAllStopTimes()
-            db.stopDao().deleteAllRoutes()
             db.stopDao().deleteAllTrips()
+            db.stopDao().deleteAllStops()
+            db.stopDao().deleteAllRoutes()
 
-            // Import new data
-            importStopsFromGTFS(context)
-            importStopTimesFromGTFS(context)
+            // Import new data in the correct order to maintain referential integrity
             importRoutesFromGTFS(context)
+            importStopsFromGTFS(context)
+            importTripsFromGTFS(context)
+            importStopTimesFromGTFS(context)
         }
     }
 
@@ -52,6 +53,34 @@ class GTFSRepository(private val db: GTFSDatabase) {
                 db.stopDao().insertStops(stopsList)
             } catch (e: Exception) {
                 throw Exception("Failed to import stops: ${e.message}")
+            }
+        }
+    }
+
+    private suspend fun importTripsFromGTFS(context: Context) {
+        withContext(Dispatchers.IO) {
+            try {
+                val tripsList = mutableListOf<TripEntity>()
+                context.assets.open("trips.txt").use { inputStream ->
+                    val reader = BufferedReader(InputStreamReader(inputStream))
+                    reader.readLine() // Skip header
+                    reader.forEachLine { line ->
+                        val tokens = line.split(",")
+                        if (tokens.size >= 4) {
+                            val trip = TripEntity(
+                                trip_id = tokens[0],
+                                route_id = tokens[1],
+                                service_id = tokens[2],
+                                trip_headsign = tokens.getOrNull(3) ?: "",
+                                shape_id = tokens.getOrNull(4) ?: ""
+                            )
+                            tripsList.add(trip)
+                        }
+                    }
+                }
+                db.stopDao().insertTrips(tripsList)
+            } catch (e: Exception) {
+                throw Exception("Failed to import trips: ${e.message}")
             }
         }
     }

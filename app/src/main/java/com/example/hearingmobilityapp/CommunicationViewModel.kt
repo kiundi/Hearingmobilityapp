@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.delay
+import android.util.Log
+import java.util.UUID
 
 data class SavedMessages(val id: String, val text: String, val isFavorite: Boolean = false)
 
@@ -31,27 +33,34 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
 
     private val _savedMessages = MutableStateFlow<List<SavedMessages>>(emptyList())
     val savedMessages: StateFlow<List<SavedMessages>> = _savedMessages
-    
+
     private val _favoriteMessages = MutableStateFlow<List<SavedMessages>>(emptyList())
     val favoriteMessages: StateFlow<List<SavedMessages>> = _favoriteMessages
-    
+
     private val _showAddedToFavoritesMessage = MutableStateFlow(false)
     val showAddedToFavoritesMessage: StateFlow<Boolean> = _showAddedToFavoritesMessage
-    
+
     private val _showRemovedFromFavoritesMessage = MutableStateFlow(false)
     val showRemovedFromFavoritesMessage: StateFlow<Boolean> = _showRemovedFromFavoritesMessage
-    
+
+    // Saved routes functionality
+    private val _savedRoutes = MutableStateFlow<List<SavedRoute>>(emptyList())
+    val savedRoutes: StateFlow<List<SavedRoute>> = _savedRoutes
+
     // Voice recognition manager
     private val voiceRecognitionManager = VoiceRecognitionManager(application.applicationContext)
-    
+
     // Recording duration
     private val _recordingDuration = MutableStateFlow("")
     val recordingDuration: StateFlow<String> = _recordingDuration
-    
+
     // Partial transcription (updates as user speaks)
     private val _partialTranscription = MutableStateFlow("")
     val partialTranscription: StateFlow<String> = _partialTranscription
-    
+
+    private val previousRoutes = mutableListOf<PreviousRoute>()
+    private val gtfsHelper = GTFSHelper(application.applicationContext)
+
     // Model initialization status
     private val _modelInitStatus = MutableStateFlow(ModelInitStatus.NOT_INITIALIZED)
     val modelInitStatus: StateFlow<ModelInitStatus> = _modelInitStatus
@@ -60,7 +69,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     private val auth = FirebaseAuth.getInstance()
     private var savedMessagesListener: ListenerRegistration? = null
     private var favoriteMessagesListener: ListenerRegistration? = null
-    
+
     // Add a state to track if user is authenticated
     private val _isUserAuthenticated = MutableStateFlow(false)
     val isUserAuthenticated: StateFlow<Boolean> = _isUserAuthenticated
@@ -68,7 +77,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     init {
         // Check if user is already signed in
         checkAuthState()
-        
+
         // Only fetch messages if user is authenticated
         viewModelScope.launch {
             isUserAuthenticated.collect { isAuthenticated ->
@@ -78,17 +87,17 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 }
             }
         }
-        
+
         // Initialize voice recognition model
         initializeVoiceRecognition()
-        
+
         // Collect recording state
         viewModelScope.launch {
             voiceRecognitionManager.isRecording.collect { isRecording ->
                 _isListening.value = isRecording
             }
         }
-        
+
         // Collect model initialization state
         viewModelScope.launch {
             voiceRecognitionManager.isModelInitialized.collect { isInitialized ->
@@ -97,21 +106,21 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 }
             }
         }
-        
+
         // Collect recording duration
         viewModelScope.launch {
             voiceRecognitionManager.recordingDuration.collect { durationInSeconds ->
                 _recordingDuration.value = voiceRecognitionManager.formatDuration(durationInSeconds)
             }
         }
-        
+
         // Collect partial transcription
         viewModelScope.launch {
             voiceRecognitionManager.partialText.collect { partialText ->
                 _partialTranscription.value = partialText
             }
         }
-        
+
         // Collect final transcription
         viewModelScope.launch {
             voiceRecognitionManager.transcribedText.collect { transcribedText ->
@@ -121,7 +130,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
             }
         }
     }
-    
+
     private fun initializeVoiceRecognition() {
         viewModelScope.launch {
             Log.d("CommunicationViewModel", "Starting model initialization...")
@@ -149,7 +158,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
             }
         }
     }
-    
+
     private fun checkAuthState() {
         val currentUser = auth.currentUser
         if (currentUser == null) {
@@ -270,27 +279,27 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                     
                     // Also add to favorites collection for easier querying
                     getFavoriteMessagesCollection().add(hashMapOf("text" to message)).await()
-                    
+
                     // Show notification
                     _showAddedToFavoritesMessage.value = true
                     viewModelScope.launch {
                         kotlinx.coroutines.delay(2000)
                         _showAddedToFavoritesMessage.value = false
                     }
-                    
+
                 } catch (e: Exception) {
                     println("Error adding to favorites: ${e.message}")
                 }
             }
         }
     }
-    
+
     fun removeFromFavorites(message: String) {
         if (!_isUserAuthenticated.value) {
             checkAuthState() // Try to authenticate if not already
             return
         }
-        
+
         getCurrentUserId()?.let { userId ->
             viewModelScope.launch {
                 try {
@@ -299,7 +308,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                         .whereEqualTo("text", message)
                         .get()
                         .await()
-                    
+
                     for (document in savedQuerySnapshot.documents) {
                         document.reference.update("isFavorite", false).await()
                     }
@@ -446,6 +455,45 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         savedMessagesListener?.remove() // Remove listener when ViewModel is cleared
         favoriteMessagesListener?.remove()
         voiceRecognitionManager.release() // Release voice recognition resources
+    }
+
+    fun saveRoute(source: String, destination: String, selectedArea: String) {
+        val route = PreviousRoute(
+            id = UUID.randomUUID().toString(),
+            source = source,
+            destination = destination,
+            selectedArea = selectedArea,
+            timestamp = System.currentTimeMillis()
+        )
+        previousRoutes.add(route)
+    }
+
+    fun getPreviousRoutes(): List<PreviousRoute> {
+        return previousRoutes.sortedByDescending { it.timestamp }
+    }
+
+    fun getRouteInfo(source: String, destination: String): String {
+        return gtfsHelper.getRouteInfo(source, destination)
+    }
+
+    fun getStopInfo(stopName: String): String {
+        return gtfsHelper.getStopInfo(stopName)
+    }
+
+    fun getStopCoordinates(stopName: String): Pair<Double, Double> {
+        return gtfsHelper.getStopCoordinates(stopName)
+    }
+
+    fun getRoutePoints(source: String, destination: String): List<Pair<Double, Double>> {
+        return gtfsHelper.getRoutePoints(source, destination)
+    }
+
+    fun getRouteTime(source: String, destination: String): String {
+        return gtfsHelper.getRouteTime(source, destination)
+    }
+
+    fun removeRoute(routeId: String) {
+        previousRoutes.removeAll { it.id == routeId }
     }
 }
 

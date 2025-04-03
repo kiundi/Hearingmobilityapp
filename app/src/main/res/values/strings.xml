@@ -1,4 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Hearingmobilityapp</string>
     <string name="default_web_client_id">1069992839675-jikbrfeul8akrrgvmurk4duffe2mqacd.apps.googleusercontent.com</string>
+    <string name="nominatim_api_url">https://nominatim.openstreetmap.org</string>
 </resources>

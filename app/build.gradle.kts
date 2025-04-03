@@ -98,14 +98,25 @@ dependencies {
     implementation (libs.osmdroid.android)
     implementation (libs.androidx.room.runtime)
     implementation (libs.androidx.room.ktx)
+    implementation(libs.androidx.media3.common.ktx)
     ksp(libs.androidx.room.compiler)
+    implementation (libs.osmdroid.osmdroid.android.v6116)
+    // Remove the problematic OSMBonusPack dependencies
+    // implementation (libs.osmdroid.bonuspack)
+    implementation ("com.github.MKergall:osmbonuspack:6.7.0") // Use a specific version that works
     implementation (libs.kotlinx.coroutines.android)
     implementation(libs.material3)
     implementation (libs.androidx.material)
     implementation(libs.androidx.ui.test.android)
     implementation(libs.openai.client) // Use the latest version
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.vosk) // Added Vosk for speech recognition
+    // Remove duplicate osmdroid dependency
+    // implementation (libs.osmdroid.android)
+    // Remove duplicate osmbonuspack dependency
+    // implementation (libs.osmbonuspack)
+    
+    // Add Vosk library for voice recognition
+    implementation("com.alphacephei:vosk-android:0.3.47")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

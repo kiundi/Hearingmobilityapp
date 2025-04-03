@@ -20,11 +20,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,28 +34,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Dummy data model for saved routes.
-data class SavedRoute(
-    val id: String, 
-    val name: String, 
-    val details: String,
-    val startLocation: String = "Home",
-    val endLocation: String = "Office"
-)
 
 @Composable
 fun SavedRoutesScreen(
-    viewModel: CommunicationViewModel, // Now using CommunicationViewModel instead of SharedViewModel.
+    viewModel: CommunicationViewModel,
     onClose: () -> Unit,
     onRouteSelected: (SavedRoute) -> Unit
 ) {
-    // For now, we define a dummy list. Later, connect to the database or view model.
-    val savedRoutes = remember {
-        listOf(
-            SavedRoute("1", "Home to Office", "Via Main St", "Home", "Office"),
-            SavedRoute("2", "Office to Gym", "Via 2nd Ave", "Office", "Gym")
-        )
-    }
+    // Get saved routes from the viewModel
+    val savedRoutes by viewModel.savedRoutes.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Faded background overlay.
@@ -61,6 +50,7 @@ fun SavedRoutesScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.3f))
+                .clickable { onClose() } // Close when clicking outside
         )
         // Sidebar panel sliding from the left.
         Column(
@@ -98,28 +88,59 @@ fun SavedRoutesScreen(
             } else {
                 LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
                     items(savedRoutes) { route ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .background(
-                                    color = Color.LightGray.copy(alpha = 0.6f),
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .clickable {
-                                    onRouteSelected(route)
-                                    onClose()
-                                }
-                                .padding(16.dp)
-                        ) {
-                            Column {
-                                Text(text = route.name, fontSize = 16.sp, color = Color.Black)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(text = route.details, fontSize = 14.sp, color = Color.DarkGray)
-                            }
-                        }
+                        RouteItem(
+                            route = route,
+                            onRouteSelected = { onRouteSelected(route) },
+                            onRouteDeleted = { viewModel.removeRoute(route.id) }
+                        )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun RouteItem(
+    route: SavedRoute,
+    onRouteSelected: () -> Unit,
+    onRouteDeleted: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(
+                color = Color.LightGray.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(8.dp)
+            )
+            .clickable { onRouteSelected() }
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = "From: ${route.startLocation}", fontSize = 16.sp, color = Color.Black)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = "To: ${route.endLocation}", fontSize = 14.sp, color = Color.DarkGray)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Type: ${route.destinationType}",
+                    fontSize = 12.sp,
+                    color = Color(0xFF007AFF)
+                )
+            }
+            IconButton(
+                onClick = onRouteDeleted,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Delete Route",
+                    tint = Color.Red.copy(alpha = 0.7f)
+                )
             }
         }
     }

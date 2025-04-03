@@ -1,0 +1,7 @@
+trip_id,route_id,service_id,trip_headsign,shape_id
+TRIP1,ROUTE1,WEEKDAY,Central Line Outbound,SHAPE1
+TRIP2,ROUTE1,WEEKDAY,Central Line Inbound,SHAPE2
+TRIP3,ROUTE2,WEEKDAY,City Circle Clockwise,SHAPE3
+TRIP4,ROUTE3,WEEKDAY,University Express,SHAPE4
+TRIP5,ROUTE4,WEEKDAY,Hospital Link,SHAPE5
+TRIP6,ROUTE5,WEEKDAY,Market Route,SHAPE6
