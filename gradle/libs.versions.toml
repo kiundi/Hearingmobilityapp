@@ -42,6 +42,7 @@ uiTestAndroid = "1.7.8"
 ksp = "2.0.0-1.0.21"
 vosk = "0.3.47"
 media3CommonKtx = "1.6.0"
+playServicesLocation = "21.3.0"
 
 [libraries]
 accompanist-permissions = { module = "com.google.accompanist:accompanist-permissions", version.ref = "accompanistPermissions" }
@@ -94,6 +95,7 @@ firebase-database = { group = "com.google.firebase", name = "firebase-database",
 androidx-ui-test-android = { group = "androidx.compose.ui", name = "ui-test-android", version.ref = "uiTestAndroid" }
 vosk = { module = "com.alphacephei:vosk-android", version.ref = "vosk" }
 androidx-media3-common-ktx = { group = "androidx.media3", name = "media3-common-ktx", version.ref = "media3CommonKtx" }
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

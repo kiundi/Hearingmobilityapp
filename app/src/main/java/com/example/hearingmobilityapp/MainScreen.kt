@@ -26,7 +26,10 @@ fun MainScreen() {
     // Create shared ViewModels at the top level to share across screens
     val sharedViewModel: SharedViewModel = viewModel()
     val communicationViewModel: CommunicationViewModel = viewModel()
-
+    
+    // Get application context for GTFSViewModel
+    val appContext = LocalContext.current.applicationContext as Application
+    
     Scaffold(
         bottomBar = { BottomNavBar(navController = bottomNavController, items = bottomNavItems) }
     ) { innerPadding ->
@@ -38,32 +41,41 @@ fun MainScreen() {
         ) {
             composable(Screen.Navigation.route) {
                 NavigationScreen(
-                    navController = bottomNavController, 
-                    sharedViewModel = sharedViewModel,
-                    communicationViewModel = communicationViewModel
+                    navController = bottomNavController,
+                    viewModel = communicationViewModel,
+                    sharedViewModel = sharedViewModel
                 )
             }
 
             composable(Screen.Communication.route) { 
                 CommunicationPage(viewModel = communicationViewModel) 
             }
-            composable(Screen.Account.route) {AccountScreen(navController = rememberNavController()) }
             
-            // Add ChatbotScreen as a destination
-            composable("ChatbotScreen") {
-                val gtfsViewModel: GTFSViewModel = viewModel(
-                    factory = GTFSViewModel.Factory(LocalContext.current.applicationContext as Application)
-                )
+            composable(Screen.Account.route) {
+                AccountScreen(navController = rememberNavController())
+            }
+            
+            // Add chatbot screen
+            composable("chatbot") {
                 ChatbotScreen(
-                    gtfsViewModel = gtfsViewModel,
-                    sharedViewModel = sharedViewModel,
-                    onNavigateToMap = { bottomNavController.navigate(Screen.Navigation.route) }
+                    navController = bottomNavController,
+                    gtfsViewModel = viewModel(
+                        factory = GTFSViewModel.Factory(appContext)
+                    ),
+                    communicationViewModel = communicationViewModel
                 )
             }
             
-            // Add TripDetailsScreen as a destination
+            // Add trip details screen
             composable("TripDetailsScreen") {
-                TripDetailsScreen(sharedViewModel = sharedViewModel)
+                TripDetailsScreen(
+                    navController = bottomNavController,
+                    sharedViewModel = sharedViewModel,
+                    gtfsViewModel = viewModel(
+                        factory = GTFSViewModel.Factory(appContext)
+                    ),
+                    communicationViewModel = communicationViewModel
+                )
             }
         }
     }

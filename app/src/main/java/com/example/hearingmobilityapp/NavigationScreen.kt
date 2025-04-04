@@ -1,16 +1,11 @@
 package com.example.hearingmobilityapp
 
+// Make sure we're importing the right classes from the project
+// This will prevent redeclaration errors
 import android.Manifest
-import android.content.pm.PackageManager
-import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
-import android.os.Bundle
-import androidx.core.app.ActivityCompat
 import android.content.Context
-import androidx.annotation.OptIn
+import android.util.Log
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,24 +14,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Snackbar
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,120 +46,54 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
+import androidx.core.app.ActivityCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.media3.common.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
-import org.osmdroid.config.Configuration
+import kotlinx.coroutines.launch
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
-import com.example.hearingmobilityapp.SharedViewModel
-import com.example.hearingmobilityapp.CommunicationViewModel
-import kotlinx.coroutines.launch
-import android.location.Geocoder
-import java.util.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Send
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.material3.MaterialTheme
-import java.text.SimpleDateFormat
 
-data class PreviousRoute(
-    val id: String,
-    val source: String,
-    val destination: String,
-    val selectedArea: String,
-    val timestamp: Long
-)
+// Configuration object
+object NavigationConfig {
+    const val DEFAULT_AVERAGE_SPEED_KMH = 30.0
+    val AREA_TYPES = listOf("Hospital", "School", "Market", "Office", "Restaurant", "Shopping")
+    val DEFAULT_COORDINATES = Pair(-1.286389, 36.817223)  // Default to Nairobi if everything else fails
 
-@Composable
-fun PreviousRoutesSection(
-    previousRoutes: List<PreviousRoute>,
-    onRouteSelected: (PreviousRoute) -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Text(
-                text = "Previous Routes",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            
-            previousRoutes.forEach { route ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .clickable { onRouteSelected(route) },
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFFF5F5F5)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            text = "${route.source} → ${route.destination}",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Area: ${route.selectedArea}",
-                            fontSize = 14.sp,
-                            color = Color.Gray
-                        )
-                        Text(
-                            text = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
-                                .format(Date(route.timestamp)),
-                            fontSize = 12.sp,
-                            color = Color.Gray
-                        )
-                    }
-                }
-            }
-        }
-    }
+    // Empty predefined locations map - in a real app, this would be populated from a database
+    val PREDEFINED_LOCATIONS = mapOf<String, Pair<Double, Double>>()
 }
+
+// Constants for permission requests
+private const val LOCATION_PERMISSION_REQUEST_CODE = 100
 
 @Composable
 fun NavigationScreen(
     navController: NavController,
-    sharedViewModel: SharedViewModel,
-    communicationViewModel: CommunicationViewModel = viewModel()
+    viewModel: CommunicationViewModel,
+    sharedViewModel: SharedViewModel = viewModel()
 ) {
-    val context = LocalContext.current
-    var source by remember { mutableStateOf("") }
-    var destination by remember { mutableStateOf("") }
+    var sourceLocation by remember { mutableStateOf("") }
+    var destinationLocation by remember { mutableStateOf("") }
     var showSavedRoutes by remember { mutableStateOf(false) }
+    var selectedAreaType by remember { mutableStateOf("Hospital") }
     var routeSelected by remember { mutableStateOf(false) }
-    var selectedArea by remember { mutableStateOf("Destination") }
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
     var mapView: MapView? by remember { mutableStateOf(null) }
     var sourcePoint by remember { mutableStateOf<GeoPoint?>(null) }
     var destPoint by remember { mutableStateOf<GeoPoint?>(null) }
-    val locationUtils = remember { LocationUtils(context) }
-    var isLocationTracking by remember { mutableStateOf(false)}
+    val locationUtils = remember {
+        val gtfsHelper = viewModel.getGTFSHelper()
+        LocationUtils(context, gtfsHelper)
+    }
+    var isLoading by remember { mutableStateOf(false) }
+    var isLocationTracking by remember { mutableStateOf(false) }
     var currentLocation by remember { mutableStateOf<GeoPoint?>(null) }
     var navigationInstructions by remember { mutableStateOf<String>("") }
     var estimatedTime by remember { mutableStateOf<String>("") }
@@ -179,14 +103,6 @@ fun NavigationScreen(
     var navigationStarted by remember { mutableStateOf(false) }
     var nextTurn by remember { mutableStateOf("") }
     var distanceToNextTurn by remember { mutableStateOf("") }
-
-    // Add previous routes state
-    var previousRoutes by remember { mutableStateOf<List<PreviousRoute>>(emptyList()) }
-    
-    // Load previous routes
-    LaunchedEffect(Unit) {
-        previousRoutes = communicationViewModel.getPreviousRoutes()
-    }
 
     LaunchedEffect(Unit) {
         val permissions = arrayOf(
@@ -199,6 +115,7 @@ fun NavigationScreen(
             1
         )
     }
+
     // Box to contain the entire screen including snackbar
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -232,7 +149,17 @@ fun NavigationScreen(
                     }
                 }
                 // Top Right: Chat Button.
-                IconButton(onClick = { navController.navigate("ChatbotScreen") }) {
+                IconButton(onClick = {
+                    // Save the current route if available
+                    if (sourceLocation.isNotBlank() && destinationLocation.isNotBlank()) {
+                        viewModel.saveRoute(
+                            sourceLocation.trim(),
+                            destinationLocation.trim(),
+                            selectedAreaType
+                        )
+                    }
+                    navController.navigate("chatbot")
+                }) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_notification),
@@ -249,18 +176,12 @@ fun NavigationScreen(
                 }
             }
 
-            // Search Fields moved below the top bar.
-            val context = LocalContext.current
-            val locationUtils = remember { LocationUtils(context) }
-            var sourcePoint by remember { mutableStateOf<GeoPoint?>(null) }
-            var destPoint by remember { mutableStateOf<GeoPoint?>(null) }
-
 // Source input with autocomplete
             LocationInputField(
-                value = source,
+                value = sourceLocation,
                 onValueChange = {
-                    source = it
-                    routeSelected = source.isNotBlank() && destination.isNotBlank()
+                    sourceLocation = it
+                    routeSelected = sourceLocation.isNotBlank() && destinationLocation.isNotBlank()
                 },
                 label = "Enter Source",
                 locationUtils = locationUtils,
@@ -285,10 +206,10 @@ fun NavigationScreen(
 
 // Destination input with autocomplete
             LocationInputField(
-                value = destination,
+                value = destinationLocation,
                 onValueChange = {
-                    destination = it
-                    routeSelected = source.isNotBlank() && destination.isNotBlank()
+                    destinationLocation = it
+                    routeSelected = sourceLocation.isNotBlank() && destinationLocation.isNotBlank()
                 },
                 label = "Enter Destination",
                 locationUtils = locationUtils,
@@ -327,9 +248,14 @@ fun NavigationScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                AreaButton("Hospital", selectedArea == "Hospital") { selectedArea = "Hospital" }
-                AreaButton("School", selectedArea == "School") { selectedArea = "School" }
-                AreaButton("Market", selectedArea == "Market") { selectedArea = "Market" }
+                NavigationConfig.AREA_TYPES.take(3).forEach { area ->
+                    AreaButton(
+                        area = area,
+                        isSelected = selectedAreaType == area
+                    ) {
+                        selectedAreaType = area
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -339,20 +265,17 @@ fun NavigationScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .clip(RoundedCornerShape(8.dp)) // enforce clipping here
+                    .clip(RoundedCornerShape(8.dp))
                     .background(Color.LightGray, shape = RoundedCornerShape(8.dp))
             ) {
-                val context = LocalContext.current
-                var mapView: MapView? by remember { mutableStateOf(null) }
-
                 AndroidView(
                     factory = { ctx ->
                         MapView(ctx).apply {
-                            clipToOutline = true  // ensure this view is clipped to its outline
-                            Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+                            clipToOutline = true
+                            org.osmdroid.config.Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
                             setTileSource(TileSourceFactory.MAPNIK)
                             controller.setZoom(15.0)
-                            val startPoint = GeoPoint(-1.286389, 36.817223)
+                            val startPoint = GeoPoint(NavigationConfig.DEFAULT_COORDINATES.first, NavigationConfig.DEFAULT_COORDINATES.second)
                             controller.setCenter(startPoint)
                             mapView = this
                         }
@@ -369,22 +292,22 @@ fun NavigationScreen(
                             if (location.contains("|")) {
                                 val parts = location.split("|")
                                 if (parts.size >= 3) {
-                                    source = parts[0]
-                                    destination = parts[1]
-                                    selectedArea = parts[2]
+                                    sourceLocation = parts[0]
+                                    destinationLocation = parts[1]
+                                    selectedAreaType = parts[2]
                                     routeSelected = true
 
                                     mapView?.let { map ->
                                         map.overlays.clear()
 
                                         try {
-                                            val sourceCoords = getCoordinatesForLocation(context, source)
-                                            val destCoords = getCoordinatesForLocation(context, destination)
+                                            val sourceCoords = getCoordinatesForLocation(sourceLocation, locationUtils)
+                                            val destCoords = getCoordinatesForLocation(destinationLocation, locationUtils)
 
                                             // Add source marker
                                             Marker(map).apply {
                                                 position = GeoPoint(sourceCoords.first, sourceCoords.second)
-                                                title = source
+                                                title = sourceLocation
                                                 snippet = "Starting point"
                                                 map.overlays.add(this)
                                             }
@@ -392,8 +315,8 @@ fun NavigationScreen(
                                             // Add destination marker
                                             Marker(map).apply {
                                                 position = GeoPoint(destCoords.first, destCoords.second)
-                                                title = destination
-                                                snippet = selectedArea
+                                                title = destinationLocation
+                                                snippet = selectedAreaType
                                                 map.overlays.add(this)
                                             }
 
@@ -465,19 +388,8 @@ fun NavigationScreen(
                 }
             }
 
-            // Add Previous Routes Section
-            PreviousRoutesSection(
-                previousRoutes = previousRoutes,
-                onRouteSelected = { route ->
-                    source = route.source
-                    destination = route.destination
-                    selectedArea = route.selectedArea
-                    routeSelected = true
-                }
-            )
-
             // Action Buttons Row
-            if (routeSelected || (source.isNotBlank() && destination.isNotBlank())) {
+            if (routeSelected || (sourceLocation.isNotBlank() && destinationLocation.isNotBlank())) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -487,12 +399,14 @@ fun NavigationScreen(
                     Button(
                         onClick = {
                             // Save the route to the CommunicationViewModel
-                            communicationViewModel.saveRoute(source, destination, selectedArea)
+                            viewModel.saveRoute(sourceLocation, destinationLocation, selectedAreaType)
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar("Route saved successfully!")
                             }
                         },
-                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFF28A745)
                         ),
@@ -509,19 +423,81 @@ fun NavigationScreen(
                     // Start Trip Button
                     Button(
                         onClick = {
-                            try {
-                                val sourceCoords = getCoordinatesForLocation(context, source)
-                                val destCoords = getCoordinatesForLocation(context, destination)
-                                val tripData = "$source|$destination|$selectedArea|${sourceCoords.first}|${sourceCoords.second}|${destCoords.first}|${destCoords.second}"
-                                sharedViewModel.updateMessage(tripData)
-                                navController.navigate("TripDetailsScreen")
-                            } catch (e: Exception) {
+                            if (isLoading) return@Button
+                            if (sourceLocation.isBlank() || destinationLocation.isBlank()) {
                                 coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Error starting trip: ${e.message}")
+                                    snackbarHostState.showSnackbar("Please enter both source and destination")
+                                }
+                                return@Button
+                            }
+                            
+                            isLoading = true
+                            coroutineScope.launch {
+                                try {
+                                    Log.d("NavigationScreen", "Starting trip from $sourceLocation to $destinationLocation")
+                                    
+                                    // Get coordinates using the improved function
+                                    val sourceCoords = getCoordinatesForLocation(sourceLocation, locationUtils)
+                                    val destCoords = getCoordinatesForLocation(destinationLocation, locationUtils)
+                                    
+                                    // Check if coordinates are valid (not default)
+                                    val usingDefault = sourceCoords == NavigationConfig.DEFAULT_COORDINATES || 
+                                                       destCoords == NavigationConfig.DEFAULT_COORDINATES
+                                    
+                                    if (usingDefault) {
+                                        Log.w("NavigationScreen", "Using default coordinates, showing warning")
+                                        snackbarHostState.showSnackbar(
+                                            "Could not find exact location. Using approximate coordinates.",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                    }
+
+                                    // Create initial route points for better visualization
+                                    val initialRoutePoints = generateRoutePoints(
+                                        GeoPoint(sourceCoords.first, sourceCoords.second),
+                                        GeoPoint(destCoords.first, destCoords.second)
+                                    )
+
+                                    // Format trip data with proper coordinates and route points
+                                    val routePointsString = initialRoutePoints.joinToString(";") { "${it.latitude},${it.longitude}" }
+                                    val tripData = "$sourceLocation|$destinationLocation|${sourceCoords.first}|${sourceCoords.second}|${destCoords.first}|${destCoords.second}|$routePointsString"
+                                    Log.d("NavigationScreen", "Trip data: $tripData")
+                                    
+                                    // Update shared view model with the enhanced data
+                                    sharedViewModel.updateMessage(tripData)
+                                    
+                                    // Save the route before navigating
+                                    viewModel.saveRoute(sourceLocation, destinationLocation, selectedAreaType)
+                                    
+                                    // Navigate to trip details with single top for clean navigation
+                                    navController.navigate("TripDetailsScreen") {
+                                        launchSingleTop = true
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("NavigationScreen", "Error starting trip: ${e.message}", e)
+                                    snackbarHostState.showSnackbar(
+                                        message = "Error starting trip: ${e.message ?: "Unknown error"}",
+                                        duration = SnackbarDuration.Short
+                                    )
+                                } finally {
+                                    isLoading = false
                                 }
                             }
-                        }
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ),
+                        enabled = sourceLocation.isNotBlank() && destinationLocation.isNotBlank() && !isLoading
                     ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
                         Text(
                             text = "Start Trip",
                             color = Color.White,
@@ -531,33 +507,23 @@ fun NavigationScreen(
                     }
                 }
             }
-
-            // Add ChatSection with proper parameters
-            ChatSection(
-                communicationViewModel = communicationViewModel,
-                source = source,
-                destination = destination,
-                onSendMessage = { message ->
-                    // Handle message sending if needed
-                }
-            )
         }
 
-        // Overlay: Saved Routes Sidebar.
+        // Overlay: Saved Routes Sidebar
         if (showSavedRoutes) {
             SavedRoutesScreen(
-                viewModel = communicationViewModel,
+                viewModel = viewModel,
                 onClose = { showSavedRoutes = false },
                 onRouteSelected = { selectedRoute ->
                     // Handle route selection – update search fields, etc.
-                    source = selectedRoute.startLocation
-                    destination = selectedRoute.endLocation
-                    selectedArea = selectedRoute.destinationType
+                    sourceLocation = selectedRoute.source
+                    destinationLocation = selectedRoute.destination
+                    selectedAreaType = selectedRoute.selectedArea
                     routeSelected = true
                     showSavedRoutes = false
 
                     // Update the shared view model with the selected route
-                    sharedViewModel.updateMessage("$source|$destination|$selectedArea")
+                    sharedViewModel.updateMessage("$sourceLocation|$destinationLocation|$selectedAreaType")
                 }
             )
         }
@@ -567,16 +533,7 @@ fun NavigationScreen(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(16.dp),
-            snackbar = { data ->
-                Snackbar(
-                    containerColor = Color(0xFF28A745),
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(text = data.visuals.message)
-                }
-            }
+                .padding(16.dp)
         )
     }
 }
@@ -594,251 +551,45 @@ fun AreaButton(area: String, isSelected: Boolean, onClick: () -> Unit) {
         Text(area)
     }
 }
-@Composable
-fun LocationInputField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    label: String,
-    locationUtils: LocationUtils,
-    onLocationSelected: (GeoPoint) -> Unit
-) {
-    var suggestions by remember { mutableStateOf(emptyList<String>()) }
-    var showSuggestions by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
 
-    Column {
-        OutlinedTextField(
-            value = value,
-            onValueChange = { newValue ->
-                onValueChange(newValue)
-                coroutineScope.launch {
-                    if (newValue.length >= 3) {
-                        suggestions = locationUtils.getSuggestions(newValue)
-                        showSuggestions = true
-                    } else {
-                        suggestions = emptyList()
-                        showSuggestions = false
-                    }
-                }
-            },
-            label = { Text(label) },
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color(0xFF007AFF),
-                unfocusedBorderColor = Color(0xFF6C757D)
-            )
-        )
-
-        if (showSuggestions && suggestions.isNotEmpty()) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 200.dp),
-                shadowElevation = 4.dp
-            ) {
-                LazyColumn {
-                    items(suggestions) { suggestion ->
-                        Text(
-                            text = suggestion,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onValueChange(suggestion)
-                                    showSuggestions = false
-                                    coroutineScope.launch {
-                                        locationUtils.getCoordinates(suggestion)?.let {
-                                            onLocationSelected(it)
-                                        }
-                                    }
-                                }
-                                .padding(16.dp)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Update coordinates function with error handling
-
-private val locationMap = mutableMapOf<String, Location>().apply {
-    // Initialize with sample locations
-    put("nairobi", android.location.Location("").apply {
-        latitude = -1.286389
-        longitude = 36.817223
-    })
-    put("mombasa", android.location.Location("").apply {
-        latitude = -4.0435
-        longitude = 39.6682
-    })
-    put("kisumu", android.location.Location("").apply {
-        latitude = -0.1022
-        longitude = 34.7617
-    })
-    put("nakuru", android.location.Location("").apply {
-        latitude = -0.3031
-        longitude = 36.0800
-    })
-    // Add more locations as needed
-}
-
+// The rest of your utilities and functions...
+@androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(UnstableApi::class)
-private fun getCoordinatesForLocation(context: Context, location: String): Pair<Double, Double> {
-    // Handle special cases that might cause parsing errors
-    if (location.contains("ZONE", ignoreCase = true)) {
-        // Return default coordinates for Nairobi if location contains ZONE
-        return Pair(-1.286389, 36.817223)
+private suspend fun getCoordinatesForLocation(location: String, locationUtils: LocationUtils): Pair<Double, Double> {
+    Log.d("NavigationScreen", "Getting coordinates for: $location")
+    // Handle empty location
+    if (location.isBlank()) {
+        Log.w("NavigationScreen", "Location is blank, using default coordinates")
+        return NavigationConfig.DEFAULT_COORDINATES
     }
     
-    // Convert input to lowercase for case-insensitive matching
-    val normalizedLocation = location.trim().lowercase()
-
-    return try {
-        // First try to get from our predefined map
-        val coordinates = locationMap[normalizedLocation]
-        if (coordinates != null) {
-            return Pair(coordinates.latitude, coordinates.longitude)
+    try {
+        // First try to get coordinates from LocationUtils (which includes GTFS)
+        val point = locationUtils.getCoordinates(location)
+        if (point != null) {
+            Log.d("NavigationScreen", "Found coordinates via LocationUtils: ${point.latitude}, ${point.longitude}")
+            return Pair(point.latitude, point.longitude)
         }
-
-        // If not found in map, use Geocoder to get coordinates
-        val geocoder = Geocoder(context, Locale.getDefault())
-        val addresses = geocoder.getFromLocationName(location, 1)
         
-        if (addresses != null && addresses.isNotEmpty()) {
-            val address = addresses[0]
-            Pair(address.latitude, address.longitude)
-        } else {
-            // If geocoding fails, return default coordinates for Nairobi
-            Pair(-1.286389, 36.817223)
+        // Fallback to LocationMapHelper if not found
+        val mapCoords = LocationMapHelper.getCoordinates(location.trim().lowercase())
+        if (mapCoords != null) {
+            Log.d("NavigationScreen", "Found coordinates via LocationMapHelper: ${mapCoords.first}, ${mapCoords.second}")
+            return mapCoords
         }
+        
+        // Last resort: default coordinates
+        Log.w("NavigationScreen", "Using default coordinates for: $location")
+        return NavigationConfig.DEFAULT_COORDINATES
     } catch (e: Exception) {
-        Log.e("NavigationScreen", "Error getting coordinates for location: $location", e)
-        // Return default coordinates for Nairobi in case of error
-        Pair(-1.286389, 36.817223)
+        Log.e("NavigationScreen", "Error getting coordinates for $location: ${e.message}", e)
+        return NavigationConfig.DEFAULT_COORDINATES
     }
 }
 
-private fun addLocation(name: String, latitude: Double, longitude: Double) {
-    locationMap[name.trim().lowercase()] = android.location.Location("custom-provider").apply {
-        this.latitude = latitude
-        this.longitude = longitude
-    }
-}
+private fun calculateDistance(point1: GeoPoint?, point2: GeoPoint?): Double {
+    if (point1 == null || point2 == null) return 0.0
 
-private fun checkLocationPermission(context: Context): Boolean {
-    return ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.ACCESS_FINE_LOCATION
-    ) == PackageManager.PERMISSION_GRANTED
-}
-
-private fun updateRouteWithNewLocation(
-    currentPoint: GeoPoint,
-    destPoint: GeoPoint,
-    mapView: MapView,
-    onNavigationUpdate: (String, String, String, String) -> Unit
-) {
-    // Calculate remaining distance
-    val distance = calculateDistance(currentPoint, destPoint)
-    val remainingDistance = "%.1f km".format(distance)
-    
-    // Calculate estimated time (assuming average speed of 30 km/h)
-    val timeInHours = distance / 30.0
-    val timeInMinutes = (timeInHours * 60).toInt()
-    val estimatedTime = "$timeInMinutes min"
-    
-    // Calculate next turn and distance to it
-    val (turn, turnDistance) = calculateNextTurn(currentPoint, destPoint)
-    val distanceToNextTurn = "%.1f km".format(turnDistance)
-    
-    // Update map overlays
-    mapView.overlays.clear()
-    
-    // Add markers and route line
-    addMapOverlays(mapView, currentPoint, destPoint)
-    
-    // Notify caller of updates
-    onNavigationUpdate(turn, distanceToNextTurn, estimatedTime, remainingDistance)
-}
-
-private fun startLocationUpdates(
-    context: Context,
-    mapView: MapView,
-    onLocationUpdate: (GeoPoint) -> Unit
-) {
-    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    val locationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            val currentPoint = GeoPoint(location.latitude, location.longitude)
-            mapView.controller.setCenter(currentPoint)
-            onLocationUpdate(currentPoint)
-        }
-
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
-    }
-
-    if (checkLocationPermission(context)) {
-        locationManager.requestLocationUpdates(
-            LocationManager.GPS_PROVIDER,
-            5000,
-            10f,
-            locationListener
-        )
-    }
-}
-
-private fun GeoPoint.bearingTo(dest: GeoPoint): Double {
-    val lat1 = Math.toRadians(this.latitude)
-    val lon1 = Math.toRadians(this.longitude)
-    val lat2 = Math.toRadians(dest.latitude)
-    val lon2 = Math.toRadians(dest.longitude)
-    
-    val dLon = lon2 - lon1
-    
-    val y = Math.sin(dLon) * Math.cos(lat2)
-    val x = Math.cos(lat1) * Math.sin(lat2) -
-            Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
-    
-    var bearing = Math.toDegrees(Math.atan2(y, x))
-    if (bearing < 0) {
-        bearing += 360
-    }
-    return bearing
-}
-
-private fun addMapOverlays(mapView: MapView, currentPoint: GeoPoint, destPoint: GeoPoint) {
-    // Add current location marker
-    Marker(mapView).apply {
-        position = currentPoint
-        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-        title = "Current Location"
-        mapView.overlays.add(this)
-    }
-    
-    // Add destination marker
-    Marker(mapView).apply {
-        position = destPoint
-        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-        title = "Destination"
-        mapView.overlays.add(this)
-    }
-    
-    // Add route line
-    Polyline().apply {
-        addPoint(currentPoint)
-        addPoint(destPoint)
-        color = android.graphics.Color.BLUE
-        width = 5f
-        mapView.overlays.add(this)
-    }
-    
-    mapView.invalidate()
-}
-
-private fun calculateDistance(point1: GeoPoint, point2: GeoPoint): Double {
     val R = 6371.0 // Earth's radius in km
     val lat1 = Math.toRadians(point1.latitude)
     val lat2 = Math.toRadians(point2.latitude)
@@ -853,7 +604,9 @@ private fun calculateDistance(point1: GeoPoint, point2: GeoPoint): Double {
     return R * c
 }
 
-private fun calculateNextTurn(current: GeoPoint, dest: GeoPoint): Pair<String, Double> {
+private fun calculateNextTurn(current: GeoPoint?, dest: GeoPoint?): Pair<String, Double> {
+    if (current == null || dest == null) return Pair("", 0.0)
+
     val bearing = current.bearingTo(dest)
     val distance = calculateDistance(current, dest)
     
@@ -873,218 +626,22 @@ private fun calculateNextTurn(current: GeoPoint, dest: GeoPoint): Pair<String, D
     return Pair(direction, distance)
 }
 
-@Composable
-fun ChatSection(
-    communicationViewModel: CommunicationViewModel,
-    source: String,
-    destination: String,
-    onSendMessage: (String) -> Unit
-) {
-    var message by remember { mutableStateOf("") }
-    var chatMessages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-    ) {
-        // Chat messages
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
-                .padding(8.dp)
-        ) {
-            items(chatMessages) { message ->
-                ChatMessageItem(message = message)
-            }
-        }
-        
-        // Input field
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = message,
-                onValueChange = { message = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Ask about routes or stops...") },
-                shape = RoundedCornerShape(24.dp)
-            )
-            
-            IconButton(
-                onClick = {
-                    if (message.isNotBlank()) {
-                        // Add user message
-                        chatMessages = chatMessages + ChatMessage(
-                            text = message,
-                            isUser = true
-                        )
-                        
-                        // Get response from GTFS data
-                        val response = when {
-                            message.contains("route", ignoreCase = true) -> {
-                                communicationViewModel.getRouteInfo(source, destination)
-                            }
-                            message.contains("stop", ignoreCase = true) -> {
-                                val stopName = message.split("stop", ignoreCase = true)
-                                    .lastOrNull()?.trim() ?: ""
-                                communicationViewModel.getStopInfo(stopName)
-                            }
-                            else -> "Please ask about routes or stops. For example: 'What's the route to X?' or 'What's the next bus at Y stop?'"
-                        }
-                        
-                        // Add system response
-                        chatMessages = chatMessages + ChatMessage(
-                            text = response,
-                            isUser = false
-                        )
-                        
-                        message = ""
-                    }
-                }
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Send,
-                    contentDescription = "Send",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
+private fun GeoPoint.bearingTo(dest: GeoPoint): Double {
+    val lat1 = Math.toRadians(this.latitude)
+    val lon1 = Math.toRadians(this.longitude)
+    val lat2 = Math.toRadians(dest.latitude)
+    val lon2 = Math.toRadians(dest.longitude)
+
+    val dLon = lon2 - lon1
+
+    val y = Math.sin(dLon) * Math.cos(lat2)
+    val x = Math.cos(lat1) * Math.sin(lat2) -
+            Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
+
+    var bearing = Math.toDegrees(Math.atan2(y, x))
+    if (bearing < 0) {
+        bearing += 360
     }
+    return bearing
 }
 
-data class ChatMessage(
-    val text: String,
-    val isUser: Boolean
-)
-
-@Composable
-fun ChatMessageItem(message: ChatMessage) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
-    ) {
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = if (message.isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-            ),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Text(
-                text = message.text,
-                color = if (message.isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(8.dp)
-            )
-        }
-    }
-}
-
-@Composable
-fun SavedRoutesScreen(
-    viewModel: CommunicationViewModel,
-    onClose: () -> Unit,
-    onRouteSelected: (SavedRoute) -> Unit
-) {
-    val savedRoutes by viewModel.savedRoutes.observeAsState(initial = emptyList())
-    val coroutineScope = rememberCoroutineScope()
-
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = Color.White
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Saved Routes",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = onClose) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_close),
-                        contentDescription = "Close"
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (savedRoutes.isEmpty()) {
-                Text(
-                    text = "No saved routes yet",
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    color = Color.Gray
-                )
-            } else {
-                LazyColumn {
-                    items(savedRoutes) { route ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = Color(0xFFF5F5F5)
-                            )
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp)
-                            ) {
-                                Text(
-                                    text = "${route.startLocation} → ${route.endLocation}",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Type: ${route.destinationType}",
-                                    fontSize = 14.sp,
-                                    color = Color.Gray
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Button(
-                                        onClick = { onRouteSelected(route) },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(0xFF007AFF)
-                                        )
-                                    ) {
-                                        Text("Select")
-                                    }
-                                    Button(
-                                        onClick = {
-                                            viewModel.removeRoute(route.id)
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(0xFFDC3545)
-                                        )
-                                    ) {
-                                        Text("Delete")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}

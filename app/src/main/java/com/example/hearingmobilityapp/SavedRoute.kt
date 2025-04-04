@@ -3,12 +3,12 @@ package com.example.hearingmobilityapp
 import java.util.UUID
 
 /**
- * Data class representing a saved route
+ * Data class for saved routes with navigation information
  */
 data class SavedRoute(
-    val id: String = UUID.randomUUID().toString(),
-    val startLocation: String,
-    val endLocation: String,
-    val destinationType: String,
+    val id: String,
+    val source: String,
+    val destination: String,
+    val selectedArea: String,
     val timestamp: Long = System.currentTimeMillis()
 )

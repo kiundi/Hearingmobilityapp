@@ -19,6 +19,7 @@ import java.util.UUID
 
 data class SavedMessages(val id: String, val text: String, val isFavorite: Boolean = false)
 
+
 class CommunicationViewModel(application: Application) : AndroidViewModel(application) {
     private val _message = MutableLiveData<String>()
     val message: LiveData<String> = _message
@@ -53,7 +54,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     private val _partialTranscription = MutableStateFlow("")
     val partialTranscription: StateFlow<String> = _partialTranscription
 
-    private val previousRoutes = mutableListOf<PreviousRoute>()
+    private val previousRoutes = mutableListOf<SavedRoute>()
     private val gtfsHelper = GTFSHelper(application.applicationContext)
 
     // Model initialization status
@@ -68,6 +69,16 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     // Add a state to track if user is authenticated
     private val _isUserAuthenticated = MutableStateFlow(false)
     val isUserAuthenticated: StateFlow<Boolean> = _isUserAuthenticated
+
+    // Add these properties to store last entered route
+    private val _lastSource = MutableStateFlow("")
+    val lastSource: StateFlow<String> = _lastSource
+
+    private val _lastDestination = MutableStateFlow("")
+    val lastDestination: StateFlow<String> = _lastDestination
+
+    private val _lastAreaType = MutableStateFlow("")
+    val lastAreaType: StateFlow<String> = _lastAreaType
 
     init {
         // Check if user is already signed in
@@ -444,7 +455,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun saveRoute(source: String, destination: String, selectedArea: String) {
-        val route = PreviousRoute(
+        val route = SavedRoute(
             id = UUID.randomUUID().toString(),
             source = source,
             destination = destination,
@@ -452,34 +463,104 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
             timestamp = System.currentTimeMillis()
         )
         previousRoutes.add(route)
+        
+        // Update the StateFlow to notify observers
+        _savedRoutes.value = previousRoutes.sortedByDescending { it.timestamp }
+        
+        // Store as last entered route
+        _lastSource.value = source
+        _lastDestination.value = destination
+        _lastAreaType.value = selectedArea
     }
 
-    fun getPreviousRoutes(): List<PreviousRoute> {
+    fun getPreviousRoutes(): List<SavedRoute> {
         return previousRoutes.sortedByDescending { it.timestamp }
     }
 
     fun getRouteInfo(source: String, destination: String): String {
-        return gtfsHelper.getRouteInfo(source, destination)
+        Log.d("CommunicationViewModel", "Getting route info from '$source' to '$destination'")
+        return try {
+            if (source.isBlank() || destination.isBlank()) {
+                Log.w("CommunicationViewModel", "Empty source or destination provided")
+                "Please provide both source and destination locations."
+            } else {
+                gtfsHelper.getRouteInfo(source, destination)
+            }
+        } catch (e: Exception) {
+            Log.e("CommunicationViewModel", "Error in getRouteInfo: ${e.message}", e)
+            "Sorry, I couldn't get route information at this time. Please try again later."
+        }
     }
 
     fun getStopInfo(stopName: String): String {
-        return gtfsHelper.getStopInfo(stopName)
+        Log.d("CommunicationViewModel", "Getting stop info for '$stopName'")
+        return try {
+            if (stopName.isBlank()) {
+                Log.w("CommunicationViewModel", "Empty stop name provided")
+                "Please provide a stop name."
+            } else {
+                gtfsHelper.getStopInfo(stopName)
+            }
+        } catch (e: Exception) {
+            Log.e("CommunicationViewModel", "Error in getStopInfo: ${e.message}", e)
+            "Sorry, I couldn't get stop information at this time. Please try again later."
+        }
     }
 
     fun getStopCoordinates(stopName: String): Pair<Double, Double> {
-        return gtfsHelper.getStopCoordinates(stopName)
+        Log.d("CommunicationViewModel", "Getting coordinates for stop '$stopName'")
+        return try {
+            if (stopName.isBlank()) {
+                Log.w("CommunicationViewModel", "Empty stop name provided for coordinates")
+                Pair(0.0, 0.0)
+            } else {
+                gtfsHelper.getStopCoordinates(stopName)
+            }
+        } catch (e: Exception) {
+            Log.e("CommunicationViewModel", "Error in getStopCoordinates: ${e.message}", e)
+            Pair(0.0, 0.0)
+        }
     }
 
     fun getRoutePoints(source: String, destination: String): List<Pair<Double, Double>> {
-        return gtfsHelper.getRoutePoints(source, destination)
+        Log.d("CommunicationViewModel", "Getting route points from '$source' to '$destination'")
+        return try {
+            if (source.isBlank() || destination.isBlank()) {
+                Log.w("CommunicationViewModel", "Empty source or destination provided for route points")
+                emptyList()
+            } else {
+                gtfsHelper.getRoutePoints(source, destination)
+            }
+        } catch (e: Exception) {
+            Log.e("CommunicationViewModel", "Error in getRoutePoints: ${e.message}", e)
+            emptyList()
+        }
     }
 
     fun getRouteTime(source: String, destination: String): String {
-        return gtfsHelper.getRouteTime(source, destination)
+        Log.d("CommunicationViewModel", "Getting route time from '$source' to '$destination'")
+        return try {
+            if (source.isBlank() || destination.isBlank()) {
+                Log.w("CommunicationViewModel", "Empty source or destination provided for route time")
+                "Please provide both source and destination locations."
+            } else {
+                gtfsHelper.getRouteTime(source, destination)
+            }
+        } catch (e: Exception) {
+            Log.e("CommunicationViewModel", "Error in getRouteTime: ${e.message}", e)
+            "Sorry, I couldn't calculate the route time at this time. Please try again later."
+        }
     }
 
     fun removeRoute(routeId: String) {
         previousRoutes.removeAll { it.id == routeId }
+        
+        // Update the StateFlow to notify observers
+        _savedRoutes.value = previousRoutes.sortedByDescending { it.timestamp }
+    }
+
+    fun getGTFSHelper(): GTFSHelper {
+        return gtfsHelper
     }
 }
 
