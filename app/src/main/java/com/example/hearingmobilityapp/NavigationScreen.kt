@@ -1,13 +1,13 @@
 package com.example.hearingmobilityapp
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
-import androidx.core.app.ActivityCompat
-import android.content.Context
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,12 +25,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Snackbar
@@ -56,11 +59,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
+import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
@@ -68,17 +73,9 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
-import com.example.hearingmobilityapp.SharedViewModel
-import com.example.hearingmobilityapp.CommunicationViewModel
-import kotlinx.coroutines.launch
-import android.location.Geocoder
-import java.util.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Send
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.material3.MaterialTheme
 import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class PreviousRoute(
     val id: String,
@@ -544,23 +541,21 @@ fun NavigationScreen(
         }
 
         // Overlay: Saved Routes Sidebar.
-        if (showSavedRoutes) {
-            SavedRoutesScreen(
-                viewModel = communicationViewModel,
-                onClose = { showSavedRoutes = false },
-                onRouteSelected = { selectedRoute ->
-                    // Handle route selection – update search fields, etc.
-                    source = selectedRoute.startLocation
-                    destination = selectedRoute.endLocation
-                    selectedArea = selectedRoute.destinationType
-                    routeSelected = true
-                    showSavedRoutes = false
+        if (showSavedRoutes) SavedRoutesScreen(
+            viewModel = communicationViewModel,
+            onClose = { showSavedRoutes = false },
+            onRouteSelected = { selectedRoute ->
+                // Handle route selection – update search fields, etc.
+                source = selectedRoute.startLocation
+                destination = selectedRoute.endLocation
+                selectedArea = selectedRoute.destinationType
+                routeSelected = true
+                showSavedRoutes = false
 
-                    // Update the shared view model with the selected route
-                    sharedViewModel.updateMessage("$source|$destination|$selectedArea")
-                }
-            )
-        }
+                // Update the shared view model with the selected route
+                sharedViewModel.updateMessage("$source|$destination|$selectedArea")
+            }
+        )
 
         // Snackbar host at the bottom of the screen
         SnackbarHost(
@@ -982,109 +977,6 @@ fun ChatMessageItem(message: ChatMessage) {
                 color = if (message.isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(8.dp)
             )
-        }
-    }
-}
-
-@Composable
-fun SavedRoutesScreen(
-    viewModel: CommunicationViewModel,
-    onClose: () -> Unit,
-    onRouteSelected: (SavedRoute) -> Unit
-) {
-    val savedRoutes by viewModel.savedRoutes.observeAsState(initial = emptyList())
-    val coroutineScope = rememberCoroutineScope()
-
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = Color.White
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Saved Routes",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = onClose) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_close),
-                        contentDescription = "Close"
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (savedRoutes.isEmpty()) {
-                Text(
-                    text = "No saved routes yet",
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    color = Color.Gray
-                )
-            } else {
-                LazyColumn {
-                    items(savedRoutes) { route ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = Color(0xFFF5F5F5)
-                            )
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp)
-                            ) {
-                                Text(
-                                    text = "${route.startLocation} → ${route.endLocation}",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Type: ${route.destinationType}",
-                                    fontSize = 14.sp,
-                                    color = Color.Gray
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Button(
-                                        onClick = { onRouteSelected(route) },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(0xFF007AFF)
-                                        )
-                                    ) {
-                                        Text("Select")
-                                    }
-                                    Button(
-                                        onClick = {
-                                            viewModel.removeRoute(route.id)
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(0xFFDC3545)
-                                        )
-                                    ) {
-                                        Text("Delete")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

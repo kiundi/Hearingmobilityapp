@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.delay
-import android.util.Log
 import java.util.UUID
 
 data class SavedMessages(val id: String, val text: String, val isFavorite: Boolean = false)
