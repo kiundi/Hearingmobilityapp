@@ -1,7 +1,7 @@
 [versions]
 accompanistPermissions = "0.34.0"
 activityComposeVersion = "1.9.0"
-agp = "8.9.0"
+agp = "8.8.2"
 constraintlayout = "2.2.1"
 firebaseBom = "33.10.0"
 kotlin = "2.0.0"
@@ -41,6 +41,7 @@ firebaseDatabase = "21.0.0"
 uiTestAndroid = "1.7.8"
 ksp = "2.0.0-1.0.21"
 vosk = "0.3.47"
+voskVersion = "0.3.32"
 media3CommonKtx = "1.6.0"
 playServicesLocation = "21.3.0"
 
@@ -94,6 +95,7 @@ ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", versio
 firebase-database = { group = "com.google.firebase", name = "firebase-database", version.ref = "firebaseDatabase" }
 androidx-ui-test-android = { group = "androidx.compose.ui", name = "ui-test-android", version.ref = "uiTestAndroid" }
 vosk = { module = "com.alphacephei:vosk-android", version.ref = "vosk" }
+vosk-vosk = { module = "org.vosk:vosk", version.ref = "voskVersion" }
 androidx-media3-common-ktx = { group = "androidx.media3", name = "media3-common-ktx", version.ref = "media3CommonKtx" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 

@@ -128,7 +128,6 @@ dependencies {
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.2")
-    implementation ("androidx.compose.material:material:1.7.8")
 }
 
 // Added resolution strategy to force espresso-core to version 3.5.0 to resolve dependency conflicts

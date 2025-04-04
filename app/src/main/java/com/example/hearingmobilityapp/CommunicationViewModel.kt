@@ -1,19 +1,20 @@
 package com.example.hearingmobilityapp
 
 import android.app.Application
+import android.content.ContentValues.TAG
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.delay
 import android.util.Log
 import java.util.UUID
 
@@ -23,6 +24,10 @@ data class SavedMessages(val id: String, val text: String, val isFavorite: Boole
 class CommunicationViewModel(application: Application) : AndroidViewModel(application) {
     private val _message = MutableLiveData<String>()
     val message: LiveData<String> = _message
+
+    companion object {
+        private const val TAG = "CommunicationViewModel"
+    }
 
     private val _isListening = MutableStateFlow(false)
     val isListening: StateFlow<Boolean> = _isListening
@@ -198,22 +203,31 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
             }
             return
         }
-
+        
         Log.d("CommunicationViewModel", "Starting voice recognition...")
         voiceRecognitionManager.startRecording()
     }
 
     fun stopListening() {
-        Log.d("CommunicationViewModel", "stopListening called")
-        voiceRecognitionManager.stopRecording()
+        viewModelScope.launch {
+            Log.d(TAG, "stopListening called")
+            voiceRecognitionManager.stopRecording()
 
-        // Get the transcribed text and update the message
-        val transcribedText = voiceRecognitionManager.transcribedText.value
-        if (transcribedText.isNotEmpty()) {
-            Log.d("CommunicationViewModel", "Transcribed text: $transcribedText")
-            _message.value = transcribedText
-        } else {
-            Log.d("CommunicationViewModel", "No transcribed text available")
+            // Wait briefly for final transcription
+            delay(500)
+
+            val transcribedText = voiceRecognitionManager.transcribedText.value
+            Log.d(TAG, "Retrieved transcribed text: '$transcribedText'")
+
+            if (transcribedText.isNotEmpty()) {
+                // Treat transcribed text as a new message
+                updateMessage(transcribedText)
+                Log.d(TAG, "Updated message with transcribed text")
+            } else {
+                Log.e(TAG, "No transcribed text available")
+            }
+
+            _isListening.value = false
         }
     }
 
@@ -223,7 +237,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
 
     private fun getSavedMessagesCollection() =
         firestore.collection("users").document(getCurrentUserId() ?: "").collection("savedMessages")
-
+        
     private fun getFavoriteMessagesCollection() =
         firestore.collection("users").document(getCurrentUserId() ?: "").collection("favoriteMessages")
 
@@ -232,7 +246,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
             checkAuthState() // Try to authenticate if not already
             return
         }
-
+        
         getCurrentUserId()?.let { userId ->
             viewModelScope.launch {
                 try {
@@ -245,13 +259,13 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
             }
         }
     }
-
+    
     fun addToFavorites(message: String) {
         if (!_isUserAuthenticated.value) {
             checkAuthState() // Try to authenticate if not already
             return
         }
-
+        
         getCurrentUserId()?.let { userId ->
             viewModelScope.launch {
                 try {
@@ -260,7 +274,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                         .whereEqualTo("text", message)
                         .get()
                         .await()
-
+                    
                     // If it exists, update it to mark as favorite
                     if (!querySnapshot.isEmpty) {
                         for (document in querySnapshot.documents) {
@@ -273,7 +287,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                             "isFavorite" to true
                         )).await()
                     }
-
+                    
                     // Also add to favorites collection for easier querying
                     getFavoriteMessagesCollection().add(hashMapOf("text" to message)).await()
 
@@ -309,38 +323,38 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                     for (document in savedQuerySnapshot.documents) {
                         document.reference.update("isFavorite", false).await()
                     }
-
+                    
                     // Remove from favorites collection
                     val favQuerySnapshot = getFavoriteMessagesCollection()
                         .whereEqualTo("text", message)
                         .get()
                         .await()
-
+                    
                     for (document in favQuerySnapshot.documents) {
                         document.reference.delete().await()
                     }
-
+                    
                     // Show notification
                     _showRemovedFromFavoritesMessage.value = true
                     viewModelScope.launch {
                         kotlinx.coroutines.delay(2000)
                         _showRemovedFromFavoritesMessage.value = false
                     }
-
+                    
                 } catch (e: Exception) {
                     println("Error removing from favorites: ${e.message}")
                 }
             }
         }
     }
-
+    
     // Function to completely remove a saved message
     fun removeSavedMessage(message: String) {
         if (!_isUserAuthenticated.value) {
             checkAuthState() // Try to authenticate if not already
             return
         }
-
+        
         getCurrentUserId()?.let { userId ->
             viewModelScope.launch {
                 try {
@@ -349,25 +363,25 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                         .whereEqualTo("text", message)
                         .get()
                         .await()
-
+                    
                     for (document in favQuerySnapshot.documents) {
                         document.reference.delete().await()
                     }
-
+                    
                     // Then remove from saved messages collection
                     val savedQuerySnapshot = getSavedMessagesCollection()
                         .whereEqualTo("text", message)
                         .get()
                         .await()
-
+                    
                     for (document in savedQuerySnapshot.documents) {
                         document.reference.delete().await()
                     }
-
+                    
                     // Update the local lists
                     fetchSavedMessages()
                     fetchFavoriteMessages()
-
+                    
                 } catch (e: Exception) {
                     println("Error removing saved message: ${e.message}")
                 }
@@ -381,7 +395,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
             checkAuthState() // Try to authenticate if not already
             return
         }
-
+        
         getCurrentUserId()?.let { userId ->
             viewModelScope.launch {
                 try {
@@ -389,7 +403,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                         .whereEqualTo("text", message)
                         .get()
                         .await()
-
+                    
                     callback(!querySnapshot.isEmpty)
                 } catch (e: Exception) {
                     callback(false)
@@ -413,7 +427,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
 
                     val messages = snapshot?.documents?.map { document ->
                         SavedMessages(
-                            id = document.id,
+                            id = document.id, 
                             text = document.getString("text") ?: "",
                             isFavorite = document.getBoolean("isFavorite") ?: false
                         )
@@ -422,7 +436,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 }
         }
     }
-
+    
     private fun fetchFavoriteMessages() {
         getCurrentUserId()?.let { userId ->
             favoriteMessagesListener?.remove() // Remove previous listener
@@ -437,7 +451,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
 
                     val messages = snapshot?.documents?.map { document ->
                         SavedMessages(
-                            id = document.id,
+                            id = document.id, 
                             text = document.getString("text") ?: "",
                             isFavorite = true
                         )

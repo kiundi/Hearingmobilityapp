@@ -1,5 +1,11 @@
 package com.example.hearingmobilityapp
 
+import android.widget.Toast
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -7,6 +13,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +21,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,7 +30,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -51,6 +56,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -58,8 +64,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.foundation.gestures.detectTapGestures
-import android.widget.Toast
 
 private const val MAX_CHARACTERS = 500
 
@@ -85,6 +89,19 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
 
     // Use this to allow scrolling of the main content
     val scrollState = rememberScrollState()
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            // Permission granted, start listening
+            viewModel.startListening()
+            Toast.makeText(context, "Starting voice recognition...", Toast.LENGTH_SHORT).show()
+        } else {
+            // Permission denied
+            Toast.makeText(context, "Microphone permission is required for voice recording", Toast.LENGTH_LONG).show()
+        }
+    }
     
     // Check if current displayed message is a favorite
     LaunchedEffect(displayedMessage) {
@@ -378,7 +395,7 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                     )
                 )
                 IconButton(
-                    onClick = { 
+                    onClick = {
                         if (isListening) {
                             viewModel.stopListening()
                             // When stopping, save the transcribed message
@@ -390,19 +407,27 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                             }
                             Toast.makeText(context, "Stopped listening", Toast.LENGTH_SHORT).show()
                         } else {
-                            // Check model initialization status
-                            when (viewModel.modelInitStatus.value) {
-                                ModelInitStatus.NOT_INITIALIZED, ModelInitStatus.INITIALIZING -> {
-                                    Toast.makeText(context, "Voice recognition is initializing, please wait...", Toast.LENGTH_LONG).show()
+                            when {
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED -> {
+                                    // Permission already granted, start listening
+                                    when (viewModel.modelInitStatus.value) {
+                                        ModelInitStatus.INITIALIZED -> {
+                                            viewModel.startListening()
+                                            Toast.makeText(context, "Starting voice recognition...", Toast.LENGTH_SHORT).show()
+                                        }
+                                        else -> {
+                                            Toast.makeText(context, "Voice recognition is initializing, please wait...", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
                                 }
-                                ModelInitStatus.FAILED -> {
-                                    Toast.makeText(context, "Voice recognition initialization failed. Retrying...", Toast.LENGTH_LONG).show()
-                                }
-                                ModelInitStatus.INITIALIZED -> {
-                                    Toast.makeText(context, "Starting voice recognition...", Toast.LENGTH_SHORT).show()
+                                else -> {
+                                    // Request permission
+                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                 }
                             }
-                            viewModel.startListening()
                         }
                     }
                 ) {
