@@ -43,7 +43,6 @@ fun ChatbotScreen(
     // Get last entered route information
     val lastSource by communicationViewModel.lastSource.collectAsState()
     val lastDestination by communicationViewModel.lastDestination.collectAsState()
-    val lastAreaType by communicationViewModel.lastAreaType.collectAsState()
     
     // Observe data loading state
     val isDataLoaded by gtfsViewModel.isDataLoaded.observeAsState(false)

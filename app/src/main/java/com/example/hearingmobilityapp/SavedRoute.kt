@@ -9,6 +9,5 @@ data class SavedRoute(
     val id: String,
     val source: String,
     val destination: String,
-    val selectedArea: String,
     val timestamp: Long = System.currentTimeMillis()
 )

@@ -35,11 +35,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +53,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
@@ -68,7 +70,6 @@ import android.graphics.Color as AndroidColor
 import android.app.Application
 import com.example.hearingmobilityapp.GTFSViewModel
 import android.graphics.Paint
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
@@ -76,6 +77,11 @@ import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
 
 data class TripLocation(
     val source: String,
@@ -184,6 +190,8 @@ fun TripDetailsScreen(
     var currentStep by remember { mutableStateOf(0) }
     var totalSteps by remember { mutableStateOf(5) } // Default number of steps
 
+    var userHasMoved by remember { mutableStateOf(false) }
+
     // Get route information from GTFS
     LaunchedEffect(tripLocation, isGTFSDataLoaded) {
         if (tripLocation != null && isGTFSDataLoaded) {
@@ -203,18 +211,19 @@ fun TripDetailsScreen(
                         }
                         Log.d("TripDetailsScreen", "Using GTFS route with ${routePoints.size} points")
                     } else {
-                        // Fallback to simulated route
+                        // Fallback to real road route from OSRM
+                        Log.d("TripDetailsScreen", "No GTFS route points, fetching real road route")
                         val sourcePoint = GeoPoint(tripLocation.sourceLat, tripLocation.sourceLong)
                         val destPoint = GeoPoint(tripLocation.destLat, tripLocation.destLong)
-                        routePoints = generateRoutePoints(sourcePoint, destPoint)
-                        Log.d("TripDetailsScreen", "Using simulated route with ${routePoints.size} points")
+                        routePoints = fetchRealRoutePoints(sourcePoint, destPoint)
+                        Log.d("TripDetailsScreen", "Using real road route with ${routePoints.size} points")
                     }
                 } catch (e: Exception) {
-                    // Fallback to simulated route
+                    // Fallback to real road route from OSRM
                     Log.e("TripDetailsScreen", "Error getting GTFS route points: ${e.message}")
                     val sourcePoint = GeoPoint(tripLocation.sourceLat, tripLocation.sourceLong)
                     val destPoint = GeoPoint(tripLocation.destLat, tripLocation.destLong)
-                    routePoints = generateRoutePoints(sourcePoint, destPoint)
+                    routePoints = fetchRealRoutePoints(sourcePoint, destPoint)
                 }
 
                 // Get estimated time from GTFS if available
@@ -230,8 +239,8 @@ fun TripDetailsScreen(
                 } catch (e: Exception) {
                     Log.e("TripDetailsScreen", "Error getting GTFS route time: ${e.message}")
                     // Fallback to distance-based estimate is already implemented in the LaunchedEffect below
-                }
-            } catch (e: Exception) {
+            }
+        } catch (e: Exception) {
                 Log.e("TripDetailsScreen", "Error loading GTFS data: ${e.message}", e)
             }
         }
@@ -332,7 +341,7 @@ fun TripDetailsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Back button
-                IconButton(onClick = {
+                IconButton(onClick = { 
                     navigationStarted = false
                     isLocationTracking = false
                     navController.popBackStack()
@@ -345,7 +354,7 @@ fun TripDetailsScreen(
                 }
 
                 Text(
-                    text = "Original Navigation View", // Text to identify this is the original implementation
+                    text = "Trip Details", // Text to identify this is the original implementation
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF333333)
@@ -370,23 +379,23 @@ fun TripDetailsScreen(
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
-                    Text(
+                        Text(
                         text = "From: ${tripLocation?.source ?: ""}",
                         fontSize = 14.sp,
                         color = Color.Gray
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
+                        Text(
                         text = "To: ${tripLocation?.destination ?: ""}",
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Bold,
                         color = Color.Black
-                    )
-
+                )
+            
                     // Show GTFS route info if available
                     if (routeInfo.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
+            Spacer(modifier = Modifier.height(8.dp))
+                Text(
                             text = routeInfo,
                             fontSize = 14.sp,
                             color = Color(0xFF0D47A1)
@@ -394,16 +403,16 @@ fun TripDetailsScreen(
                     }
 
                     // Trip time info
-                    Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text(
+                        Text(
                                 text = "$distanceToDestination km",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
                                 color = Color(0xFF007AFF)
                             )
                             Text(
@@ -414,13 +423,13 @@ fun TripDetailsScreen(
                         }
 
                         Column {
-                            Text(
+                                Text(
                                 text = "$estimatedTimeMinutes min",
                                 fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.Bold,
                                 color = Color(0xFF007AFF)
-                            )
-                            Text(
+                                )
+                                Text(
                                 text = "Estimated Time",
                                 fontSize = 12.sp,
                                 color = Color.Gray
@@ -430,13 +439,13 @@ fun TripDetailsScreen(
                         Column {
                             val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
                             val arrivalTime = Date(System.currentTimeMillis() + estimatedTimeMinutes * 60 * 1000)
-                            Text(
+                        Text(
                                 text = timeFormat.format(arrivalTime),
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF007AFF)
                             )
-                            Text(
+                        Text(
                                 text = "Arrival Time",
                                 fontSize = 12.sp,
                                 color = Color.Gray
@@ -447,34 +456,34 @@ fun TripDetailsScreen(
             }
 
             // Next direction card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
                     containerColor = Color(0xFF007AFF)
-                ),
-                shape = RoundedCornerShape(8.dp)
+        ),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
+                Icon(
                         imageVector = Icons.Default.LocationOn,
                         contentDescription = "Direction",
                         tint = Color.White,
                         modifier = Modifier.size(32.dp)
                     )
-                    Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(16.dp))
                     Column {
-                        Text(
+                Text(
                             text = nextDirection,
                             color = Color.White,
-                            fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
-                        )
-                        Text(
+                )
+                Text(
                             text = "Step ${currentStep + 1} of $totalSteps",
                             color = Color.White.copy(alpha = 0.8f),
                             fontSize = 14.sp
@@ -494,21 +503,21 @@ fun TripDetailsScreen(
                     .background(Color.LightGray)
             ) {
                 // OSMDroid map
-                AndroidView(
-                    factory = { ctx ->
-                        MapView(ctx).apply {
+    AndroidView(
+        factory = { ctx ->
+            MapView(ctx).apply {
                             Log.d("TripDetailsScreen", "Creating new MapView instance")
                             clipToOutline = true
                             
                             // Configure map settings
                             Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
-                            setTileSource(TileSourceFactory.MAPNIK)
+                setTileSource(TileSourceFactory.MAPNIK)
                             
                             // Optimize map performance
                             maxZoomLevel = 19.0
                             minZoomLevel = 5.0
                             isTilesScaledToDpi = true
-                            setMultiTouchControls(true)
+                setMultiTouchControls(true)
                             setScrollableAreaLimitLatitude(MapView.getTileSystem().maxLatitude, MapView.getTileSystem().minLatitude, 0)
                             
                             // Ensure handlers are created on UI thread
@@ -530,8 +539,8 @@ fun TripDetailsScreen(
                                         
                                         // Add markers
                                         val sourceMarker = Marker(this@apply).apply {
-                                            position = currentLocation
-                                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                position = currentLocation
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                                             title = tripLocation?.source ?: "Source"
                                             icon = ContextCompat.getDrawable(context, R.drawable.ic_notification)
                                             infoWindow = null // Disable popup to improve performance
@@ -539,46 +548,59 @@ fun TripDetailsScreen(
                                         overlays.add(sourceMarker)
                                         
                                         val destMarker = Marker(this@apply).apply {
-                                            position = destination
-                                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                position = destination
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                                             title = tripLocation?.destination ?: "Destination"
                                             icon = ContextCompat.getDrawable(context, R.drawable.ic_notification)
                                             infoWindow = null // Disable popup to improve performance
                                         }
                                         overlays.add(destMarker)
                                         
-                                        // Draw route line if route points exist, otherwise draw direct line
-                                        if (routePoints.isNotEmpty()) {
+                                        // Draw route line if route points exist, otherwise fetch real road route
+                                        val pointsToUse = if (routePoints.isNotEmpty()) {
                                             Log.d("TripDetailsScreen", "Drawing route with ${routePoints.size} points")
-                                            
-                                            // Create polyline
-                                            val line = Polyline(this@apply).apply {
-                                                outlinePaint.color = AndroidColor.parseColor("#007AFF")
-                                                outlinePaint.strokeWidth = 14f
-                                                outlinePaint.strokeCap = Paint.Cap.ROUND
-                                                outlinePaint.strokeJoin = Paint.Join.ROUND
-                                                outlinePaint.isAntiAlias = true
-                                                
-                                                // Set points
-                                                setPoints(routePoints)
-                                            }
-                                            overlays.add(line)
+                                            routePoints
                                         } else {
-                                            // Draw direct line if no route points
-                                            Log.d("TripDetailsScreen", "No route points available, drawing direct line")
-                                            val line = Polyline(this@apply).apply {
-                                                outlinePaint.color = AndroidColor.parseColor("#007AFF")
-                                                outlinePaint.strokeWidth = 14f
-                                                outlinePaint.strokeCap = Paint.Cap.ROUND
-                                                outlinePaint.strokeJoin = Paint.Join.ROUND
-                                                outlinePaint.isAntiAlias = true
-                                                
-                                                // Add start and end points
-                                                addPoint(currentLocation)
-                                                addPoint(destination)
+                                            Log.d("TripDetailsScreen", "No route points available, fetching real road route")
+                                            // Launch a coroutine to fetch the real route
+                                            val sourcePoint = currentLocation
+                                            val destPoint = destination
+                                            
+                                            // Use a temporary list while we fetch the real route
+                                            val tempRoute = generateRoutePoints(currentLocation, destination, 60)
+                                            
+                                            // Start fetching the real route in the background
+                                            coroutineScope.launch {
+                                                try {
+                                                    val realRoute = fetchRealRoutePoints(sourcePoint, destPoint)
+                                                    // Update the route on the map once we have the real route
+                                                    withContext(Dispatchers.Main) {
+                                                        if (isActive) {
+                                                            routePoints = realRoute
+                                                            updateMapRoute(this@apply, currentLocation, destination, realRoute)
+                                                        }
+                                                    }
+                                                } catch (e: Exception) {
+                                                    Log.e("TripDetailsScreen", "Failed to fetch real route: ${e.message}", e)
+                                                }
                                             }
-                                            overlays.add(line)
+                                            
+                                            // Return the temporary route for now
+                                            tempRoute
                                         }
+                                        
+                                        // Create polyline with the points
+                                        val line = Polyline(this@apply).apply {
+                outlinePaint.color = AndroidColor.parseColor("#007AFF")
+                                            outlinePaint.strokeWidth = 14f
+                                            outlinePaint.strokeCap = Paint.Cap.ROUND
+                                            outlinePaint.strokeJoin = Paint.Join.ROUND
+                outlinePaint.isAntiAlias = true
+                                            
+                                            // Set points
+                                            setPoints(pointsToUse)
+                                        }
+                                        overlays.add(line)
                                         
                                         // Set map center and zoom
                                         try {
@@ -663,33 +685,25 @@ fun TripDetailsScreen(
                                     view.overlays.add(destMarker)
                                     
                                     // Draw route line
-                                    if (routePoints.isNotEmpty()) {
-                                        val line = Polyline(view).apply {
-                                            outlinePaint.color = AndroidColor.parseColor("#007AFF")
-                                            outlinePaint.strokeWidth = 14f
-                                            outlinePaint.strokeCap = Paint.Cap.ROUND
-                                            outlinePaint.strokeJoin = Paint.Join.ROUND
-                                            outlinePaint.isAntiAlias = true
-                                            
-                                            // Set points
-                                            setPoints(routePoints)
-                                        }
-                                        view.overlays.add(line)
+                                    val pointsToUse = if (routePoints.size > 1) {
+                                        // Use provided route points if available
+                                        routePoints
                                     } else {
-                                        // Draw direct line if no route points
-                                        val line = Polyline(view).apply {
-                                            outlinePaint.color = AndroidColor.parseColor("#007AFF")
-                                            outlinePaint.strokeWidth = 14f
-                                            outlinePaint.strokeCap = Paint.Cap.ROUND
-                                            outlinePaint.strokeJoin = Paint.Join.ROUND
-                                            outlinePaint.isAntiAlias = true
-                                            
-                                            // Add start and end points
-                                            addPoint(currentLocation)
-                                            addPoint(destination)
-                                        }
-                                        view.overlays.add(line)
+                                        // Generate a more realistic route if no route points provided
+                                        generateRoutePoints(currentLocation, destination, 20)
                                     }
+                                    
+                                    val line = Polyline(view).apply {
+                                        outlinePaint.color = AndroidColor.parseColor("#007AFF")
+                                        outlinePaint.strokeWidth = 14f
+                                        outlinePaint.strokeCap = Paint.Cap.ROUND
+                                        outlinePaint.strokeJoin = Paint.Join.ROUND
+                                        outlinePaint.isAntiAlias = true
+                                        
+                                        // Set points
+                                        setPoints(pointsToUse)
+                                    }
+                                    view.overlays.add(line)
                                     
                                     // Update zoom if not navigating
                                     if (!navigationStarted) {
@@ -720,47 +734,47 @@ fun TripDetailsScreen(
                 )
 
                 // Zoom controls
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                ) {
-                    IconButton(
-                        onClick = { mapView?.controller?.zoomIn() },
-                        modifier = Modifier
-                            .background(Color.White.copy(alpha = 0.9f), CircleShape)
-                            .size(40.dp)
-                    ) {
-                        Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    IconButton(
-                        onClick = { mapView?.controller?.zoomOut() },
-                        modifier = Modifier
-                            .background(Color.White.copy(alpha = 0.9f), CircleShape)
-                            .size(40.dp)
-                    ) {
-                        Text("-", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                // Current location button
-                IconButton(
-                    onClick = {
-                        mapView?.controller?.animateTo(currentLocation)
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(16.dp)
-                        .background(Color.White.copy(alpha = 0.9f), CircleShape)
-                        .size(48.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.LocationOn,
-                        contentDescription = "My Location",
-                        tint = Color(0xFF007AFF),
-                        modifier = Modifier.size(24.dp)
-                    )
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+        ) {
+            IconButton(
+                onClick = { mapView?.controller?.zoomIn() },
+                modifier = Modifier
+                    .background(Color.White.copy(alpha = 0.9f), CircleShape)
+                    .size(40.dp)
+            ) {
+                Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            IconButton(
+                onClick = { mapView?.controller?.zoomOut() },
+                modifier = Modifier
+                    .background(Color.White.copy(alpha = 0.9f), CircleShape)
+                    .size(40.dp)
+            ) {
+                Text("-", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        
+        // Current location button
+        IconButton(
+            onClick = { 
+                mapView?.controller?.animateTo(currentLocation)
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+                .background(Color.White.copy(alpha = 0.9f), CircleShape)
+                .size(48.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.LocationOn,
+                contentDescription = "My Location",
+                tint = Color(0xFF007AFF),
+                modifier = Modifier.size(24.dp)
+            )
                 }
             }
 
@@ -771,6 +785,16 @@ fun TripDetailsScreen(
                 onClick = {
                     navigationStarted = !navigationStarted
                     if (!navigationStarted) {
+                        // Check if user has moved before starting navigation
+                        if (userHasMoved) {
+                            navigationStarted = true
+                        } else {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Start moving to begin navigation")
+                            }
+                        }
+                    } else {
+                        navigationStarted = false
                         // Reset to starting position if stopping
                         tripLocation?.let {
                             currentLocation = GeoPoint(it.sourceLat, it.sourceLong)
@@ -783,10 +807,10 @@ fun TripDetailsScreen(
                 ),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Text(
+            Text(
                     text = if (navigationStarted) "End Navigation" else "Start Navigation",
                     color = Color.White,
-                    fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
             }
@@ -795,10 +819,21 @@ fun TripDetailsScreen(
         // Snackbar host
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier
+                    modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(16.dp)
         )
+    }
+
+    // Simulate user movement detection
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            delay(1000) // Check every second
+            // Simulate user movement detection logic
+            if (currentLocation != GeoPoint(tripLocation?.sourceLat ?: 0.0, tripLocation?.sourceLong ?: 0.0)) {
+                userHasMoved = true
+            }
+        }
     }
 }
 
@@ -846,58 +881,42 @@ private fun updateMapRoute(mapView: MapView, current: GeoPoint, destination: Geo
             mapView.overlays.add(destMarker)
             
             // Draw route line
-            if (routePoints.size > 1) {
-                val line = Polyline(mapView).apply {
-                    outlinePaint.color = AndroidColor.parseColor("#007AFF")
-                    outlinePaint.strokeWidth = 14f
-                    outlinePaint.strokeCap = Paint.Cap.ROUND
-                    outlinePaint.strokeJoin = Paint.Join.ROUND
-                    outlinePaint.isAntiAlias = true
-                    
-                    // Set points
-                    setPoints(routePoints)
-                }
-                mapView.overlays.add(line)
-                
-                // Show a reasonable view of the current point and some of the route ahead
-                try {
-                    // Focus on the current location and the next few points
-                    val visibleRoutePart = routePoints.subList(
-                        0, 
-                        Math.min(5, routePoints.size)
-                    )
-                    val boundingBox = BoundingBox.fromGeoPoints(visibleRoutePart)
-                    mapView.zoomToBoundingBox(boundingBox.increaseByScale(1.3f), true, 100, 16.0, 300L)
-                } catch (e: Exception) {
-                    Log.e("TripDetailsScreen", "Error setting navigation bounding box: ${e.message}", e)
-                    // Fall back to centered view
-                    mapView.controller.setCenter(current)
-                    mapView.controller.setZoom(16.0)
-                }
+            val pointsToUse = if (routePoints.size > 1) {
+                // Use provided route points if available
+                routePoints
             } else {
-                // Draw direct line if no route points
-                val line = Polyline(mapView).apply {
-                    outlinePaint.color = AndroidColor.parseColor("#007AFF")
-                    outlinePaint.strokeWidth = 14f
-                    outlinePaint.strokeCap = Paint.Cap.ROUND
-                    outlinePaint.strokeJoin = Paint.Join.ROUND
-                    outlinePaint.isAntiAlias = true
-                    
-                    // Add current and destination points
-                    addPoint(current)
-                    addPoint(destination)
-                }
-                mapView.overlays.add(line)
+                // Generate a more realistic route if no route points provided
+                generateRoutePoints(current, destination, 20)
+            }
+            
+            val line = Polyline(mapView).apply {
+                outlinePaint.color = AndroidColor.parseColor("#007AFF")
+                outlinePaint.strokeWidth = 14f
+                outlinePaint.strokeCap = Paint.Cap.ROUND
+                outlinePaint.strokeJoin = Paint.Join.ROUND
+                outlinePaint.isAntiAlias = true
                 
-                // Show both points
-                try {
-                    val boundingBox = BoundingBox.fromGeoPoints(listOf(current, destination))
-                    mapView.zoomToBoundingBox(boundingBox.increaseByScale(1.3f), true)
-                } catch (e: Exception) {
-                    Log.e("TripDetailsScreen", "Error setting bounding box in route: ${e.message}", e)
-                    mapView.controller.setCenter(current)
-                    mapView.controller.setZoom(15.0)
-                }
+                // Set points
+                setPoints(pointsToUse)
+            }
+            mapView.overlays.add(line)
+            
+            // Show a reasonable view of the current point and some of the route ahead
+            try {
+                // Focus on the current location and the next few points
+                val visibleRoutePart = pointsToUse.take(Math.min(5, pointsToUse.size))
+                val boundingBox = BoundingBox.fromGeoPoints(visibleRoutePart)
+                
+                // Calculate padding (in pixels)
+                val paddingPx = 100
+                mapView.zoomToBoundingBox(boundingBox.increaseByScale(1.3f), true, paddingPx, 16.0, 300L)
+                
+                Log.d("TripDetailsScreen", "Set bounding box: $boundingBox")
+            } catch (e: Exception) {
+                Log.e("TripDetailsScreen", "Error setting navigation bounding box: ${e.message}", e)
+                // Fall back to centered view
+                mapView.controller.setCenter(current)
+                mapView.controller.setZoom(16.0)
             }
             
             // Force redraw
@@ -908,75 +927,99 @@ private fun updateMapRoute(mapView: MapView, current: GeoPoint, destination: Geo
     }
 }
 
-// Helper function to reduce number of points in a route (simplification algorithm)
-private fun simplifyRoutePoints(points: List<GeoPoint>): List<GeoPoint> {
-    if (points.size <= 2) return points
-
-    val tolerance = 0.00005 // Adjust based on your needs (smaller = more detailed)
-    val simplified = mutableListOf<GeoPoint>()
-
-    // Always include the first point
-    simplified.add(points.first())
-
-    // Douglas-Peucker algorithm simplified
-    for (i in 1 until points.size - 1) {
-        val prev = points[i - 1]
-        val current = points[i]
-        val next = points[i + 1]
-
-        // Calculate distance from current to line between prev and next
-        val d = perpendicularDistance(
-            current.latitude, current.longitude,
-            prev.latitude, prev.longitude,
-            next.latitude, next.longitude
-        )
-
-        if (d > tolerance) {
-            simplified.add(current)
+// Function to fetch real road route from OpenStreetMap Routing Service
+private suspend fun fetchRealRoutePoints(source: GeoPoint, destination: GeoPoint): List<GeoPoint> {
+    return withContext(Dispatchers.IO) {
+        try {
+            // Format the URL for OSRM API
+            val urlString = "https://router.project-osrm.org/route/v1/driving/${source.longitude},${source.latitude};${destination.longitude},${destination.latitude}?overview=full&geometries=polyline"
+            
+            Log.d("TripDetailsScreen", "Fetching route from OSRM API: $urlString")
+            
+            val url = URL(urlString)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 10000
+            connection.readTimeout = 15000
+            
+            val responseCode = connection.responseCode
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val response = StringBuilder()
+                var line: String?
+                
+                while (reader.readLine().also { line = it } != null) {
+                    response.append(line)
+                }
+                reader.close()
+                
+                // Parse the JSON response
+                val jsonResponse = JSONObject(response.toString())
+                
+                if (jsonResponse.has("routes") && jsonResponse.getJSONArray("routes").length() > 0) {
+                    val route = jsonResponse.getJSONArray("routes").getJSONObject(0)
+                    
+                    if (route.has("geometry")) {
+                        val geometry = route.getString("geometry")
+                        val decodedPoints = decodePolyline(geometry)
+                        
+                        Log.d("TripDetailsScreen", "Successfully fetched route with ${decodedPoints.size} points")
+                        return@withContext decodedPoints
+                    }
+                }
+            } else {
+                Log.e("TripDetailsScreen", "Error fetching route: HTTP $responseCode")
+            }
+            
+            // Fallback to generated route if API call fails
+            Log.w("TripDetailsScreen", "Falling back to generated route")
+            generateRoutePoints(source, destination, 60)
+        } catch (e: Exception) {
+            Log.e("TripDetailsScreen", "Exception fetching route: ${e.message}", e)
+            // Fallback to generated route if API call fails
+            generateRoutePoints(source, destination, 60)
         }
     }
-
-    // Always include the last point
-    simplified.add(points.last())
-
-    return simplified
 }
 
-private fun perpendicularDistance(
-    x: Double, y: Double,
-    x1: Double, y1: Double,
-    x2: Double, y2: Double
-): Double {
-    val dx = x2 - x1
-    val dy = y2 - y1
+// Decode the polyline format returned by OSRM
+private fun decodePolyline(encoded: String): List<GeoPoint> {
+    val poly = ArrayList<GeoPoint>()
+    var index = 0
+    val len = encoded.length
+    var lat = 0
+    var lng = 0
 
-    // If line is just a point, return distance to that point
-    val lineLengthSquared = dx * dx + dy * dy
-    if (lineLengthSquared < 0.0000001) {
-        return Math.sqrt((x - x1) * (x - x1) + (y - y1) * (y - y1))
+    while (index < len) {
+        var b: Int
+        var shift = 0
+        var result = 0
+        do {
+            b = encoded[index++].toInt() - 63
+            result = result or (b and 0x1f shl shift)
+            shift += 5
+        } while (b >= 0x20)
+        val dlat = if (result and 1 != 0) (result shr 1).inv() else result shr 1
+        lat += dlat
+
+        shift = 0
+        result = 0
+        do {
+            b = encoded[index++].toInt() - 63
+            result = result or (b and 0x1f shl shift)
+            shift += 5
+        } while (b >= 0x20)
+        val dlng = if (result and 1 != 0) (result shr 1).inv() else result shr 1
+        lng += dlng
+
+        val p = GeoPoint(lat.toDouble() / 1E5, lng.toDouble() / 1E5)
+        poly.add(p)
     }
 
-    // Calculate perpendicular distance
-    val t = ((x - x1) * dx + (y - y1) * dy) / lineLengthSquared
-
-    if (t < 0) {
-        // Point is beyond first point
-        return Math.sqrt((x - x1) * (x - x1) + (y - y1) * (y - y1))
-    }
-
-    if (t > 1) {
-        // Point is beyond second point
-        return Math.sqrt((x - x2) * (x - x2) + (y - y2) * (y - y2))
-    }
-
-    // Point is on the line segment
-    val projectionX = x1 + t * dx
-    val projectionY = y1 + t * dy
-
-    return Math.sqrt((x - projectionX) * (x - projectionX) + (y - projectionY) * (y - projectionY))
+    return poly
 }
 
-// Update route generation to be more efficient
+// Update route generation to be more efficient and create more realistic routes
 fun generateRoutePoints(source: GeoPoint, dest: GeoPoint, steps: Int = 20): List<GeoPoint> {
     // Reduce number of points for better performance
     val routePoints = mutableListOf<GeoPoint>()
@@ -986,44 +1029,92 @@ fun generateRoutePoints(source: GeoPoint, dest: GeoPoint, steps: Int = 20): List
     val distance = calculateDistance(source, dest)
 
     // Adjust number of points based on distance
-    val adjustedSteps = Math.min(20, Math.max(5, (distance / 2).toInt()))
+    val adjustedSteps = Math.min(60, Math.max(30, (distance / 0.5).toInt()))
 
-    // Add a midpoint with slight offset to make the route more realistic
-    val midLat = source.latitude + (dest.latitude - source.latitude) / 2
-    val midLon = source.longitude + (dest.longitude - source.longitude) / 2
-
-    // Calculate perpendicular offset direction
+    // Create multiple control points for a more realistic route
+    val controlPoints = mutableListOf<GeoPoint>()
+    
+    // Add the source point
+    controlPoints.add(source)
+    
+    // Calculate perpendicular offset direction for midpoints
     val dx = dest.longitude - source.longitude
     val dy = dest.latitude - source.latitude
     val length = Math.sqrt(dx * dx + dy * dy)
-
+    
     // Normalized perpendicular vector
     val perpX = if (length > 0.0000001) -dy / length else 0.0
     val perpY = if (length > 0.0000001) dx / length else 0.0
-
-    // Add some reasonable offset to the midpoint
-    val offsetScale = 0.0005
-    val offsetMidLat = midLat + perpY * offsetScale
-    val offsetMidLon = midLon + perpX * offsetScale
-
-    // Generate simpler curve
+    
+    // Create 3-5 intermediate control points with varying offsets
+    val numControlPoints = if (distance > 10.0) 5 else if (distance > 5.0) 4 else 3
+    
+    for (i in 1..numControlPoints) {
+        val t = i.toDouble() / (numControlPoints + 1)
+        
+        // Base midpoint
+        val midLat = source.latitude + (dest.latitude - source.latitude) * t
+        val midLon = source.longitude + (dest.longitude - source.longitude) * t
+        
+        // Vary the offset scale based on position and add some randomness
+        // Increased the offset scale significantly to make curves more pronounced
+        val offsetScale = 0.005 * Math.sin(Math.PI * t) * (1.0 + Math.random() * 0.5)
+        
+        // Alternate the direction of the offset for a more natural curve
+        // Made all offsets go in the same direction for a more pronounced curve
+        val directionMultiplier = 1.0
+        
+        // Apply offset
+        val offsetMidLat = midLat + perpY * offsetScale * directionMultiplier
+        val offsetMidLon = midLon + perpX * offsetScale * directionMultiplier
+        
+        controlPoints.add(GeoPoint(offsetMidLat, offsetMidLon))
+    }
+    
+    // Add the destination point
+    controlPoints.add(dest)
+    
+    // Log control points for debugging
+    Log.d("TripDetailsScreen", "Generated ${controlPoints.size} control points for route")
+    
+    // Now generate a smooth curve through the control points using Catmull-Rom spline
     for (i in 1 until adjustedSteps) {
         val t = i.toDouble() / adjustedSteps
-
-        // Quadratic Bezier (simpler than cubic)
-        val mt = 1 - t
-        val lat = mt * mt * source.latitude +
-                2 * mt * t * offsetMidLat +
-                t * t * dest.latitude
-
-        val lon = mt * mt * source.longitude +
-                2 * mt * t * offsetMidLon +
-                t * t * dest.longitude
-
+        
+        // Find the appropriate segment
+        val segmentCount = controlPoints.size - 1
+        val segment = Math.min((t * segmentCount).toInt(), segmentCount - 1)
+        val localT = (t * segmentCount) - segment
+        
+        // Get control points for this segment
+        val p0 = if (segment > 0) controlPoints[segment - 1] else controlPoints[0]
+        val p1 = controlPoints[segment]
+        val p2 = controlPoints[segment + 1]
+        val p3 = if (segment < segmentCount - 1) controlPoints[segment + 2] else controlPoints[segmentCount]
+        
+        // Catmull-Rom interpolation
+        val t2 = localT * localT
+        val t3 = t2 * localT
+        
+        // Catmull-Rom coefficients
+        val c0 = -0.5 * t3 + t2 - 0.5 * localT
+        val c1 = 1.5 * t3 - 2.5 * t2 + 1.0
+        val c2 = -1.5 * t3 + 2.0 * t2 + 0.5 * localT
+        val c3 = 0.5 * t3 - 0.5 * t2
+        
+        // Interpolate
+        val lat = c0 * p0.latitude + c1 * p1.latitude + c2 * p2.latitude + c3 * p3.latitude
+        val lon = c0 * p0.longitude + c1 * p1.longitude + c2 * p2.longitude + c3 * p3.longitude
+        
         routePoints.add(GeoPoint(lat, lon))
     }
 
+    // Ensure the destination is the last point
     routePoints.add(dest)
+    
+    // Log the number of points for debugging
+    Log.d("TripDetailsScreen", "Generated route with ${routePoints.size} points")
+    
     return routePoints
 }
 
@@ -1076,4 +1167,3 @@ private fun bearing(startLat: Double, startLng: Double, endLat: Double, endLng: 
     resultDegree = (resultDegree + 360) % 360
     return resultDegree
 }
-

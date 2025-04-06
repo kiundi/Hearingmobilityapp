@@ -41,7 +41,7 @@ class LocationUtils(
      * Get location suggestions based on input text, including GTFS transit stops
      */
     suspend fun getSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {
-        if (query.length < 3) return@withContext emptyList<String>()
+        if (query.isEmpty()) return@withContext emptyList<String>() // Show suggestions from the first letter
         
         val results = mutableListOf<String>()
         
@@ -49,8 +49,15 @@ class LocationUtils(
         if (gtfsHelper != null) {
             try {
                 val gtfsStops = gtfsHelper.searchStops(query)
-                results.addAll(gtfsStops)
-                Log.d("LocationUtils", "Found ${gtfsStops.size} GTFS stops for '$query'")
+                if (gtfsStops.isNotEmpty()) {
+                    results.addAll(gtfsStops)
+                    Log.d("LocationUtils", "Found ${gtfsStops.size} GTFS stops for '$query'")
+                    
+                    // If we have enough GTFS stops, return them immediately for faster response
+                    if (gtfsStops.size >= 5) {
+                        return@withContext gtfsStops.take(10) // Return only GTFS stops if we have enough
+                    }
+                }
             } catch (e: Exception) {
                 Log.e("LocationUtils", "Error getting GTFS stops: ${e.message}")
             }
@@ -71,7 +78,7 @@ class LocationUtils(
                     }
                 }
             }
-            } catch (e: IOException) {
+        } catch (e: IOException) {
             Log.e("LocationUtils", "Error getting suggestions from Geocoder: ${e.message}")
         } catch (e: Exception) {
             Log.e("LocationUtils", "Unexpected error in getSuggestions: ${e.message}")
@@ -95,6 +102,20 @@ class LocationUtils(
     /**
      * Get coordinates for a location string, including GTFS transit stops
      */
+    /**
+     * Get stop coordinates for a location string from GTFS data
+     */
+    fun getStopCoordinates(location: String): Pair<Double, Double>? {
+        if (location.isBlank() || gtfsHelper == null) return null
+        
+        try {
+            return gtfsHelper.getStopCoordinates(location)
+        } catch (e: Exception) {
+            Log.e("LocationUtils", "Error getting stop coordinates: ${e.message}")
+            return null
+        }
+    }
+    
     suspend fun getCoordinates(location: String): GeoPoint? = withContext(Dispatchers.IO) {
         if (location.isBlank()) return@withContext null
         
@@ -104,8 +125,8 @@ class LocationUtils(
             // First check GTFS stops if available
             if (gtfsHelper != null) {
                 try {
-                    val coords = gtfsHelper.getStopCoordinates(location)
-                    if (coords.first != 0.0 && coords.second != 0.0) {
+                    val coords = getStopCoordinates(location)
+                    if (coords != null && coords.first != 0.0 && coords.second != 0.0) {
                         Log.d("LocationUtils", "Found GTFS coordinates for '$location': ${coords.first}, ${coords.second}")
                         return@withContext GeoPoint(coords.first, coords.second)
                     }

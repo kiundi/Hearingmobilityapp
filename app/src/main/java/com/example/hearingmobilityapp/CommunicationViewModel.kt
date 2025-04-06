@@ -81,9 +81,6 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     private val _lastDestination = MutableStateFlow("")
     val lastDestination: StateFlow<String> = _lastDestination
 
-    private val _lastAreaType = MutableStateFlow("")
-    val lastAreaType: StateFlow<String> = _lastAreaType
-
     init {
         // Check if user is already signed in
         checkAuthState()
@@ -467,12 +464,11 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         voiceRecognitionManager.release() // Release voice recognition resources
     }
 
-    fun saveRoute(source: String, destination: String, selectedArea: String) {
+    fun saveRoute(source: String, destination: String) {
         val route = SavedRoute(
             id = UUID.randomUUID().toString(),
             source = source,
             destination = destination,
-            selectedArea = selectedArea,
             timestamp = System.currentTimeMillis()
         )
         previousRoutes.add(route)
@@ -483,7 +479,15 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         // Store as last entered route
         _lastSource.value = source
         _lastDestination.value = destination
-        _lastAreaType.value = selectedArea
+    }
+    
+    /**
+     * Get a list of saved routes as formatted strings for display
+     */
+    fun getSavedRoutes(): List<String> {
+        return previousRoutes.map { route ->
+            "${route.source}|${route.destination}"
+        }
     }
 
     fun getPreviousRoutes(): List<SavedRoute> {

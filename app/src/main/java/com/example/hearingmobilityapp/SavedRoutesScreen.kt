@@ -145,12 +145,6 @@ fun RouteCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Route to ${route.selectedArea}",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = Color(0xFF007AFF)
-                )
                 
                 IconButton(
                     onClick = onDelete,
@@ -215,10 +209,6 @@ fun RouteCard(
                     color = Color.Gray
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = route.selectedArea,
-                    fontSize = 16.sp
-                )
             }
             
             Spacer(modifier = Modifier.height(8.dp))
