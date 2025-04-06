@@ -196,125 +196,116 @@ fun TripDetailsScreen(
     LaunchedEffect(tripLocation, isGTFSDataLoaded) {
         if (tripLocation != null && isGTFSDataLoaded) {
             try {
-                // Get route info
-                val source = tripLocation.source
-                val destination = tripLocation.destination
-                routeInfo = communicationViewModel.getRouteInfo(source, destination)
-                Log.d("TripDetailsScreen", "GTFS Route info: $routeInfo")
+                withContext(Dispatchers.IO) {
+                    // Get route info
+                    val source = tripLocation.source
+                    val destination = tripLocation.destination
+                    routeInfo = communicationViewModel.getRouteInfo(source, destination)
+                    Log.d("TripDetailsScreen", "GTFS Route info: $routeInfo")
 
-                // Get route points from GTFS if available
-                try {
-                    val gtfsRoutePoints = communicationViewModel.getRoutePoints(source, destination)
-                    if (gtfsRoutePoints.isNotEmpty()) {
-                        routePoints = gtfsRoutePoints.map {
-                            GeoPoint(it.first, it.second)
+                    // Get route points from GTFS if available
+                    try {
+                        val gtfsRoutePoints = communicationViewModel.getRoutePoints(source, destination)
+                        routePoints = if (gtfsRoutePoints.isNotEmpty()) {
+                            gtfsRoutePoints.map {
+                                GeoPoint(it.first, it.second)
+                            }
+                        } else {
+                            // Fallback to real road route from OSRM
+                            Log.d("TripDetailsScreen", "No GTFS route points, fetching real road route")
+                            val sourcePoint = GeoPoint(tripLocation.sourceLat, tripLocation.sourceLong)
+                            val destPoint = GeoPoint(tripLocation.destLat, tripLocation.destLong)
+                            fetchRealRoutePoints(sourcePoint, destPoint)
                         }
-                        Log.d("TripDetailsScreen", "Using GTFS route with ${routePoints.size} points")
-                    } else {
+                        Log.d("TripDetailsScreen", "Using route with ${routePoints.size} points")
+                    } catch (e: Exception) {
+                        Log.e("TripDetailsScreen", "Error getting GTFS route points: ${e.message}")
                         // Fallback to real road route from OSRM
-                        Log.d("TripDetailsScreen", "No GTFS route points, fetching real road route")
                         val sourcePoint = GeoPoint(tripLocation.sourceLat, tripLocation.sourceLong)
                         val destPoint = GeoPoint(tripLocation.destLat, tripLocation.destLong)
                         routePoints = fetchRealRoutePoints(sourcePoint, destPoint)
-                        Log.d("TripDetailsScreen", "Using real road route with ${routePoints.size} points")
                     }
-                } catch (e: Exception) {
-                    // Fallback to real road route from OSRM
-                    Log.e("TripDetailsScreen", "Error getting GTFS route points: ${e.message}")
-                    val sourcePoint = GeoPoint(tripLocation.sourceLat, tripLocation.sourceLong)
-                    val destPoint = GeoPoint(tripLocation.destLat, tripLocation.destLong)
-                    routePoints = fetchRealRoutePoints(sourcePoint, destPoint)
-                }
 
-                // Get estimated time from GTFS if available
-                try {
-                    val gtfsTime = communicationViewModel.getRouteTime(source, destination)
-                    if (gtfsTime.contains("minutes")) {
-                        val minutes = gtfsTime.split(" ")[0].toIntOrNull()
-                        if (minutes != null) {
-                            estimatedTimeMinutes = minutes
-                            Log.d("TripDetailsScreen", "Using GTFS time estimate: $estimatedTimeMinutes min")
+                    // Get estimated time from GTFS if available
+                    try {
+                        val gtfsTime = communicationViewModel.getRouteTime(source, destination)
+                        estimatedTimeMinutes = if (gtfsTime.contains("minutes")) {
+                            gtfsTime.split(" ")[0].toIntOrNull() ?: 0
+                        } else {
+                            0
                         }
+                        Log.d("TripDetailsScreen", "Using GTFS time estimate: $estimatedTimeMinutes min")
+                    } catch (e: Exception) {
+                        Log.e("TripDetailsScreen", "Error getting GTFS route time: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    Log.e("TripDetailsScreen", "Error getting GTFS route time: ${e.message}")
-                    // Fallback to distance-based estimate is already implemented in the LaunchedEffect below
-            }
-        } catch (e: Exception) {
+                }
+            } catch (e: Exception) {
                 Log.e("TripDetailsScreen", "Error loading GTFS data: ${e.message}", e)
             }
+        } else {
+            // Set default values if GTFS data is not loaded
+            routeInfo = ""
+            routePoints = emptyList()
+            estimatedTimeMinutes = 0
         }
     }
 
     // Distance and time calculations (fallback if GTFS data not available)
     LaunchedEffect(currentLocation, destination, routePoints) {
-        val distance = calculateDistance(currentLocation, destination)
-        distanceToDestination = distance.toFloat()
-
-        // If we don't have a GTFS-based time estimate, calculate based on distance
-        if (estimatedTimeMinutes == 0) {
-            estimatedTimeMinutes = (distance / NavigationConfig.DEFAULT_AVERAGE_SPEED_KMH * 60).toInt()
-        }
-
-        // Determine next direction based on the route
-        if (navigationStarted) {
-            // Find the next point in the route that's significantly different from current location
-            val (direction, _) = calculateNextTurn(currentLocation, destination)
-            nextDirection = direction
-        }
-    }
-
-    // Simulate location updates for demo
-    LaunchedEffect(navigationStarted, routePoints) {
-        if (navigationStarted && routePoints.isNotEmpty()) {
-            isLocationTracking = true
-            totalSteps = routePoints.size
-
-            // Use a more efficient moving mechanism
-            var currentIndex = 0
-            var lastUpdateTime = 0L
-
-            while (isActive && navigationStarted && currentIndex < routePoints.size) {
-                if (System.currentTimeMillis() - lastUpdateTime >= 1000) { // 1 second intervals
-                    currentLocation = routePoints[currentIndex]
-                    currentStep = currentIndex
-
-                    val remainingDistance = calculateDistance(currentLocation, destination)
-                    distanceToDestination = remainingDistance.toFloat()
-
-                    // Calculate next direction
-                    if (currentIndex < routePoints.size - 1) {
-                        val nextPoint = routePoints[currentIndex + 1]
-                        val (direction, _) = calculateNextTurn(currentLocation, nextPoint)
-                        nextDirection = direction
-                    } else {
-                        nextDirection = "Arriving at destination"
-                    }
-
-                    // Throttle map updates to prevent ANR
-                    mapView?.let { map ->
-                        updateMapRoute(map, currentLocation, destination, routePoints.subList(currentIndex, routePoints.size))
-                    }
-
-                    currentIndex++
-                    lastUpdateTime = System.currentTimeMillis()
+        if (currentLocation != null && destination != null && routePoints.isNotEmpty()) {
+            withContext(Dispatchers.Default) {
+                try {
+                    // Calculate distance
+                    distanceToDestination = calculateDistance(currentLocation!!, destination)
+                    
+                    // Calculate estimated time based on distance
+                    val walkingSpeed = 5.0 // km/h
+                    val timeInHours = distanceToDestination / 1000 / walkingSpeed
+                    estimatedTimeMinutes = (timeInHours * 60).toInt()
+                    
+                    // Update next direction
+                    nextDirection = calculateNextDirection(currentLocation!!, destination, routePoints)
+                } catch (e: Exception) {
+                    Log.e("TripDetailsScreen", "Error calculating distance/time: ${e.message}")
                 }
-
-                // Sleep shorter intervals to keep UI responsive
-                delay(100)
             }
-
-            // End navigation if we've reached destination
-            if (currentIndex >= routePoints.size) {
-                navigationStarted = false
-            }
+        } else {
+            // Set default values if locations are not available
+            distanceToDestination = 0f
+            estimatedTimeMinutes = 0
+            nextDirection = "Proceed to start"
         }
     }
 
-    // Cleanup
+    // Map update handling with debouncing
+    LaunchedEffect(currentLocation, destination, routePoints) {
+        if (currentLocation != null && destination != null) {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastMapUpdateTime >= MIN_MAP_UPDATE_INTERVAL) {
+                lastMapUpdateTime = currentTime
+                withContext(Dispatchers.Main) {
+                    mapView?.let { map ->
+                        try {
+                            // Update map view
+                            map.controller.animateTo(currentLocation)
+                            map.invalidate()
+                        } catch (e: Exception) {
+                            Log.e("TripDetailsScreen", "Error updating map: ${e.message}")
+                        }
+                    }
+                }
+            }
+        } else {
+            // No action needed if locations are not available
+        }
+    }
+
+    // Cleanup on dispose
     DisposableEffect(Unit) {
         onDispose {
-            isLocationTracking = false
+            mapUpdateJob?.cancel()
+            mapView?.onPause()
+            mapView = null
         }
     }
 
@@ -1118,7 +1109,7 @@ fun generateRoutePoints(source: GeoPoint, dest: GeoPoint, steps: Int = 20): List
     return routePoints
 }
 
-private fun calculateDistance(point1: GeoPoint, point2: GeoPoint): Double {
+private fun calculateDistance(point1: GeoPoint, point2: GeoPoint): Float {
     val R = 6371.0 // Earth's radius in km
     val lat1 = Math.toRadians(point1.latitude)
     val lat2 = Math.toRadians(point2.latitude)
@@ -1130,17 +1121,25 @@ private fun calculateDistance(point1: GeoPoint, point2: GeoPoint): Double {
             Math.sin(dLon/2) * Math.sin(dLon/2)
     val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
 
-    return R * c
+    return (R * c).toFloat()
 }
 
-private fun calculateNextTurn(current: GeoPoint, dest: GeoPoint): Pair<String, Double> {
+private fun calculateNextDirection(current: GeoPoint, destination: GeoPoint, routePoints: List<GeoPoint>): String {
+    if (routePoints.isEmpty()) {
+        return "Proceed to start"
+    }
+
+    // Find the next point in the route that's significantly different from current location
+    val nextPoint = routePoints.firstOrNull { point ->
+        calculateDistance(current, point) > 0.01 // 10 meters
+    } ?: destination
+
     val bearing = bearing(
         current.latitude, current.longitude,
-        dest.latitude, dest.longitude
+        nextPoint.latitude, nextPoint.longitude
     )
-    val distance = calculateDistance(current, dest)
 
-    val direction = when {
+    return when {
         bearing > 337.5 || bearing <= 22.5 -> "Continue North"
         bearing > 22.5 && bearing <= 67.5 -> "Turn Northeast"
         bearing > 67.5 && bearing <= 112.5 -> "Turn East"
@@ -1151,8 +1150,6 @@ private fun calculateNextTurn(current: GeoPoint, dest: GeoPoint): Pair<String, D
         bearing > 292.5 && bearing <= 337.5 -> "Turn Northwest"
         else -> "Continue straight"
     }
-
-    return Pair(direction, distance)
 }
 
 private fun bearing(startLat: Double, startLng: Double, endLat: Double, endLng: Double): Double {

@@ -47,22 +47,28 @@ class GTFSHelper(private val context: Context) {
 
     private val database: SQLiteDatabase by lazy {
         val dbPath = context.getDatabasePath("gtfs.db").absolutePath
-        SQLiteDatabase.openDatabase(dbPath, null, SQLiteDatabase.OPEN_READONLY)
+        // Always create and populate the database on initialization
+        createAndPopulateDatabase()
+        SQLiteDatabase.openDatabase(dbPath, null, SQLiteDatabase.OPEN_READWRITE)
     }
 
     init {
-        // Check if database exists, if not create and populate it
-        if (!context.getDatabasePath("gtfs.db").exists()) {
-            createAndPopulateDatabase()
-        }
+        // No need to check here since we always create the database in the lazy initialization
+        verifyDatabaseContents()
     }
 
     private fun createAndPopulateDatabase() {
         Log.d("GTFSHelper", "Creating and populating GTFS database")
         
         try {
-            // Ensure parent directories exist
+            // Delete existing database file if it exists
             val dbFile = context.getDatabasePath("gtfs.db")
+            if (dbFile.exists()) {
+                Log.d("GTFSHelper", "Deleting existing database file")
+                dbFile.delete()
+            }
+            
+            // Ensure parent directories exist
             dbFile.parentFile?.mkdirs()
             
             val db = SQLiteDatabase.openOrCreateDatabase(
@@ -117,168 +123,290 @@ class GTFSHelper(private val context: Context) {
                     )
                 """)
 
-                // Try to parse and insert GTFS data from assets
-                try {
+                // Parse and insert GTFS data from assets
                     parseAndInsertGTFSData(db)
-                } catch (e: Exception) {
-                    Log.e("GTFSHelper", "Error parsing GTFS data from assets: ${e.message}")
-                    // Insert sample data if GTFS files aren't available
-                    insertSampleData(db)
-                }
                 
                 // Verify data was inserted
                 val cursor = db.rawQuery("SELECT COUNT(*) FROM stops", null)
                 if (cursor.moveToFirst()) {
                     val count = cursor.getInt(0)
                     Log.d("GTFSHelper", "Database created with $count stops")
+                    
+                    // Get sample stops to verify content
+                    val sampleCursor = db.rawQuery("SELECT stop_name FROM stops LIMIT 10", null)
+                    val sampleStops = mutableListOf<String>()
+                    while (sampleCursor.moveToNext()) {
+                        sampleStops.add(sampleCursor.getString(0))
+                    }
+                    sampleCursor.close()
+                    Log.d("GTFSHelper", "Sample stops from database: $sampleStops")
                 }
                 cursor.close()
                 
             } catch (e: Exception) {
                 Log.e("GTFSHelper", "Error creating database tables: ${e.message}", e)
+                throw e
             } finally {
                 db.close()
             }
         } catch (e: Exception) {
             Log.e("GTFSHelper", "Error creating database file: ${e.message}", e)
-        }
-    }
-    
-    /**
-     * Insert sample data when GTFS files aren't available
-     */
-    private fun insertSampleData(db: SQLiteDatabase) {
-        Log.d("GTFSHelper", "Inserting sample GTFS data")
-        
-        try {
-            // Sample stops
-            val sampleStops = listOf(
-                arrayOf("stop1", "Central Station", 37.7749, -122.4194),
-                arrayOf("stop2", "Downtown Terminal", 37.7833, -122.4167),
-                arrayOf("stop3", "University Stop", 37.7694, -122.4862),
-                arrayOf("stop4", "Hospital Main Entrance", 37.7835, -122.4256),
-                arrayOf("stop5", "Market Square", 37.7759, -122.4245),
-                arrayOf("stop6", "Business District", 37.7914, -122.4089),
-                arrayOf("stop7", "Residential Area", 37.7585, -122.4354),
-                arrayOf("stop8", "Shopping Center", 37.7841, -122.4075),
-                arrayOf("stop9", "Sports Complex", 37.7786, -122.3893),
-                arrayOf("stop10", "International Airport", 37.6213, -122.3790),
-                arrayOf("stop11", "City Hall", 37.7792, -122.4191),
-                arrayOf("stop12", "Museum District", 37.7701, -122.4664),
-                arrayOf("stop13", "Library", 37.7785, -122.4160),
-                arrayOf("stop14", "Community Center", 37.7749, -122.4025),
-                arrayOf("stop15", "Park Entrance", 37.7694, -122.4837)
-            )
-            
-            // Insert sample stops
-            val insertStopStmt = db.compileStatement(
-                "INSERT INTO stops (stop_id, stop_name, stop_lat, stop_lon) VALUES (?, ?, ?, ?)"
-            )
-            
-            sampleStops.forEach { stop ->
-                insertStopStmt.bindString(1, stop[0] as String)
-                insertStopStmt.bindString(2, stop[1] as String)
-                insertStopStmt.bindDouble(3, stop[2] as Double)
-                insertStopStmt.bindDouble(4, stop[3] as Double)
-                insertStopStmt.executeInsert()
-                insertStopStmt.clearBindings()
-            }
-            
-            // Sample routes
-            val sampleRoutes = listOf(
-                arrayOf("route1", "1", "Downtown Line"),
-                arrayOf("route2", "2", "University Express"),
-                arrayOf("route3", "3", "Hospital Shuttle"),
-                arrayOf("route4", "4", "Market Line"),
-                arrayOf("route5", "5", "Airport Express")
-            )
-            
-            // Insert sample routes
-            val insertRouteStmt = db.compileStatement(
-                "INSERT INTO routes (route_id, route_short_name, route_long_name) VALUES (?, ?, ?)"
-            )
-            
-            sampleRoutes.forEach { route ->
-                insertRouteStmt.bindString(1, route[0] as String)
-                insertRouteStmt.bindString(2, route[1] as String)
-                insertRouteStmt.bindString(3, route[2] as String)
-                insertRouteStmt.executeInsert()
-                insertRouteStmt.clearBindings()
-            }
-            
-            // Create sample trips and stop_times to link stops and routes
-            val sampleTrips = listOf(
-                arrayOf("trip1", "route1", "service1", "shape1"),
-                arrayOf("trip2", "route2", "service1", "shape2"),
-                arrayOf("trip3", "route3", "service1", "shape3"),
-                arrayOf("trip4", "route4", "service1", "shape4"),
-                arrayOf("trip5", "route5", "service1", "shape5")
-            )
-            
-            // Insert sample trips
-            val insertTripStmt = db.compileStatement(
-                "INSERT INTO trips (trip_id, route_id, service_id, shape_id) VALUES (?, ?, ?, ?)"
-            )
-            
-            sampleTrips.forEach { trip ->
-                insertTripStmt.bindString(1, trip[0] as String)
-                insertTripStmt.bindString(2, trip[1] as String)
-                insertTripStmt.bindString(3, trip[2] as String)
-                insertTripStmt.bindString(4, trip[3] as String)
-                insertTripStmt.executeInsert()
-                insertTripStmt.clearBindings()
-            }
-            
-            // Link stops to trips with stop_times
-            val insertStopTimeStmt = db.compileStatement(
-                "INSERT INTO stop_times (trip_id, stop_id, arrival_time, departure_time, stop_sequence) VALUES (?, ?, ?, ?, ?)"
-            )
-            
-            // Create stop_times entries to link stops with trips
-            for (i in 1..15) {
-                val tripId = "trip${(i % 5) + 1}"
-                val stopId = "stop$i"
-                
-                insertStopTimeStmt.bindString(1, tripId)
-                insertStopTimeStmt.bindString(2, stopId)
-                insertStopTimeStmt.bindString(3, "08:00:00")
-                insertStopTimeStmt.bindString(4, "08:05:00")
-                insertStopTimeStmt.bindLong(5, i.toLong())
-                insertStopTimeStmt.executeInsert()
-                insertStopTimeStmt.clearBindings()
-            }
-            
-            Log.d("GTFSHelper", "Sample data inserted successfully")
-            
-        } catch (e: Exception) {
-            Log.e("GTFSHelper", "Error inserting sample data: ${e.message}", e)
+            throw e
         }
     }
 
     private fun parseAndInsertGTFSData(db: SQLiteDatabase) {
         try {
+            // First check if stops.txt exists in assets
+            val assetFiles = context.assets.list("")
+            Log.d("GTFSHelper", "Files in assets: ${assetFiles?.joinToString(", ")}")
+            
+            if (!assetFiles?.contains("stops.txt")!!) {
+                throw Exception("stops.txt not found in assets")
+            }
+            
+            // First clear any existing data
+            db.execSQL("DELETE FROM stops")
+            db.execSQL("DELETE FROM routes")
+            db.execSQL("DELETE FROM trips")
+            db.execSQL("DELETE FROM stop_times")
+            db.execSQL("DELETE FROM shapes")
+            
             // Parse stops.txt
+            Log.d("GTFSHelper", "Starting to parse stops.txt")
             context.assets.open("stops.txt").bufferedReader().use { reader ->
-                reader.readLine() // Skip header
+                val header = reader.readLine() // Read header line
+                val headers = header.split(",").map { it.trim() }
+                Log.d("GTFSHelper", "Reading stops.txt with headers: $headers")
+                
+                // Find column indices
+                val stopIdIndex = headers.indexOf("stop_id")
+                val stopNameIndex = headers.indexOf("stop_name")
+                val stopLatIndex = headers.indexOf("stop_lat")
+                val stopLonIndex = headers.indexOf("stop_lon")
+                
+                Log.d("GTFSHelper", "Column indices - stop_id: $stopIdIndex, stop_name: $stopNameIndex, stop_lat: $stopLatIndex, stop_lon: $stopLonIndex")
+                
+                if (stopIdIndex == -1 || stopNameIndex == -1 || stopLatIndex == -1 || stopLonIndex == -1) {
+                    throw Exception("Required columns not found in stops.txt")
+                }
+                
                 val insertStmt = db.compileStatement(
-                    "INSERT INTO stops (stop_id, stop_name, stop_lat, stop_lon) VALUES (?, ?, ?, ?)"
-                )
+                "INSERT INTO stops (stop_id, stop_name, stop_lat, stop_lon) VALUES (?, ?, ?, ?)"
+            )
+            
+                var stopCount = 0
+                var lineCount = 0
                 reader.forEachLine { line ->
-                        val fields = line.split(",")
-                    insertStmt.bindString(1, fields[0])
-                    insertStmt.bindString(2, fields[2])
-                    insertStmt.bindDouble(3, fields[4].toDoubleOrNull() ?: 0.0)
-                    insertStmt.bindDouble(4, fields[5].toDoubleOrNull() ?: 0.0)
-                    insertStmt.executeInsert()
-                    insertStmt.clearBindings()
+                    lineCount++
+                    if (lineCount == 1) return@forEachLine // Skip header line
+                    
+                    val fields = line.split(",").map { it.trim() }
+                    if (fields.size >= maxOf(stopIdIndex, stopNameIndex, stopLatIndex, stopLonIndex) + 1) {
+                        val stopId = fields[stopIdIndex]
+                        val stopName = fields[stopNameIndex]
+                        val stopLat = fields[stopLatIndex].toDoubleOrNull() ?: 0.0
+                        val stopLon = fields[stopLonIndex].toDoubleOrNull() ?: 0.0
+                        
+                        // Only insert if we have valid coordinates
+                        if (stopLat != 0.0 && stopLon != 0.0) {
+                            insertStmt.bindString(1, stopId)
+                            insertStmt.bindString(2, stopName)
+                            insertStmt.bindDouble(3, stopLat)
+                            insertStmt.bindDouble(4, stopLon)
+                            insertStmt.executeInsert()
+                            insertStmt.clearBindings()
+                            stopCount++
+                            
+                            // Log every 100 stops to track progress
+                            if (stopCount % 100 == 0) {
+                                Log.d("GTFSHelper", "Inserted $stopCount stops so far")
+                            }
+                            
+                            // Log the first few stops to verify data
+                            if (stopCount <= 5) {
+                                Log.d("GTFSHelper", "Inserted stop: $stopName (ID: $stopId, Lat: $stopLat, Lon: $stopLon)")
+                            }
+                        } else {
+                            Log.w("GTFSHelper", "Skipping stop with invalid coordinates: $stopName")
+                        }
+                    } else {
+                        Log.w("GTFSHelper", "Skipping line $lineCount: Not enough fields. Fields found: ${fields.size}, Required: ${maxOf(stopIdIndex, stopNameIndex, stopLatIndex, stopLonIndex) + 1}")
+                    }
+                }
+                Log.d("GTFSHelper", "Total lines processed: $lineCount")
+                Log.d("GTFSHelper", "Total stops inserted: $stopCount")
+            }
+
+            // Verify stops were inserted correctly
+            val cursor = db.rawQuery("SELECT COUNT(*) FROM stops", null)
+            if (cursor.moveToFirst()) {
+                val count = cursor.getInt(0)
+                Log.d("GTFSHelper", "Verified stops in database: $count")
+                
+                // Get sample stops to verify content
+                val sampleCursor = db.rawQuery("SELECT stop_name, stop_lat, stop_lon FROM stops LIMIT 10", null)
+                val sampleStops = mutableListOf<String>()
+                while (sampleCursor.moveToNext()) {
+                    val stopName = sampleCursor.getString(0)
+                    val lat = sampleCursor.getDouble(1)
+                    val lon = sampleCursor.getDouble(2)
+                    sampleStops.add("$stopName (Lat: $lat, Lon: $lon)")
+                }
+                sampleCursor.close()
+                Log.d("GTFSHelper", "Sample stops from database: $sampleStops")
+            }
+            cursor.close()
+
+            // Parse routes.txt
+            context.assets.open("routes.txt").bufferedReader().use { reader ->
+                val header = reader.readLine()
+                val headers = header.split(",").map { it.trim() }
+                
+                val routeIdIndex = headers.indexOf("route_id")
+                val routeShortNameIndex = headers.indexOf("route_short_name")
+                val routeLongNameIndex = headers.indexOf("route_long_name")
+                
+                if (routeIdIndex == -1 || routeShortNameIndex == -1 || routeLongNameIndex == -1) {
+                    throw Exception("Required columns not found in routes.txt")
+                }
+                
+                val insertStmt = db.compileStatement(
+                "INSERT INTO routes (route_id, route_short_name, route_long_name) VALUES (?, ?, ?)"
+            )
+            
+                reader.forEachLine { line ->
+                    val fields = line.split(",").map { it.trim() }
+                    if (fields.size >= maxOf(routeIdIndex, routeShortNameIndex, routeLongNameIndex) + 1) {
+                        val routeId = fields[routeIdIndex]
+                        val routeShortName = fields[routeShortNameIndex]
+                        val routeLongName = fields[routeLongNameIndex]
+                        
+                        insertStmt.bindString(1, routeId)
+                        insertStmt.bindString(2, routeShortName)
+                        insertStmt.bindString(3, routeLongName)
+                        insertStmt.executeInsert()
+                        insertStmt.clearBindings()
+                    }
                 }
             }
 
-            // Similar parsing for other GTFS files...
-            // Add parsing for routes.txt, trips.txt, stop_times.txt, and shapes.txt
+            // Parse trips.txt
+            context.assets.open("trips.txt").bufferedReader().use { reader ->
+                val header = reader.readLine()
+                val headers = header.split(",").map { it.trim() }
+                
+                val tripIdIndex = headers.indexOf("trip_id")
+                val routeIdIndex = headers.indexOf("route_id")
+                val serviceIdIndex = headers.indexOf("service_id")
+                val shapeIdIndex = headers.indexOf("shape_id")
+                
+                if (tripIdIndex == -1 || routeIdIndex == -1 || serviceIdIndex == -1 || shapeIdIndex == -1) {
+                    throw Exception("Required columns not found in trips.txt")
+                }
+                
+                val insertStmt = db.compileStatement(
+                "INSERT INTO trips (trip_id, route_id, service_id, shape_id) VALUES (?, ?, ?, ?)"
+            )
+            
+                reader.forEachLine { line ->
+                    val fields = line.split(",").map { it.trim() }
+                    if (fields.size >= maxOf(tripIdIndex, routeIdIndex, serviceIdIndex, shapeIdIndex) + 1) {
+                        val tripId = fields[tripIdIndex]
+                        val routeId = fields[routeIdIndex]
+                        val serviceId = fields[serviceIdIndex]
+                        val shapeId = fields[shapeIdIndex]
+                        
+                        insertStmt.bindString(1, tripId)
+                        insertStmt.bindString(2, routeId)
+                        insertStmt.bindString(3, serviceId)
+                        insertStmt.bindString(4, shapeId)
+                        insertStmt.executeInsert()
+                        insertStmt.clearBindings()
+                    }
+                }
+            }
 
+            // Parse stop_times.txt
+            context.assets.open("stop_times.txt").bufferedReader().use { reader ->
+                val header = reader.readLine()
+                val headers = header.split(",").map { it.trim() }
+                
+                val tripIdIndex = headers.indexOf("trip_id")
+                val stopIdIndex = headers.indexOf("stop_id")
+                val arrivalTimeIndex = headers.indexOf("arrival_time")
+                val departureTimeIndex = headers.indexOf("departure_time")
+                val stopSequenceIndex = headers.indexOf("stop_sequence")
+                
+                if (tripIdIndex == -1 || stopIdIndex == -1 || arrivalTimeIndex == -1 || 
+                    departureTimeIndex == -1 || stopSequenceIndex == -1) {
+                    throw Exception("Required columns not found in stop_times.txt")
+                }
+                
+                val insertStmt = db.compileStatement(
+                "INSERT INTO stop_times (trip_id, stop_id, arrival_time, departure_time, stop_sequence) VALUES (?, ?, ?, ?, ?)"
+            )
+            
+                reader.forEachLine { line ->
+                    val fields = line.split(",").map { it.trim() }
+                    if (fields.size >= maxOf(tripIdIndex, stopIdIndex, arrivalTimeIndex, departureTimeIndex, stopSequenceIndex) + 1) {
+                        val tripId = fields[tripIdIndex]
+                        val stopId = fields[stopIdIndex]
+                        val arrivalTime = fields[arrivalTimeIndex]
+                        val departureTime = fields[departureTimeIndex]
+                        val stopSequence = fields[stopSequenceIndex].toIntOrNull() ?: 0
+                        
+                        insertStmt.bindString(1, tripId)
+                        insertStmt.bindString(2, stopId)
+                        insertStmt.bindString(3, arrivalTime)
+                        insertStmt.bindString(4, departureTime)
+                        insertStmt.bindLong(5, stopSequence.toLong())
+                        insertStmt.executeInsert()
+                        insertStmt.clearBindings()
+                    }
+                }
+            }
+
+            // Parse shapes.txt
+            context.assets.open("shapes.txt").bufferedReader().use { reader ->
+                val header = reader.readLine()
+                val headers = header.split(",").map { it.trim() }
+                
+                val shapeIdIndex = headers.indexOf("shape_id")
+                val shapePtLatIndex = headers.indexOf("shape_pt_lat")
+                val shapePtLonIndex = headers.indexOf("shape_pt_lon")
+                val shapePtSequenceIndex = headers.indexOf("shape_pt_sequence")
+                
+                if (shapeIdIndex == -1 || shapePtLatIndex == -1 || shapePtLonIndex == -1 || shapePtSequenceIndex == -1) {
+                    throw Exception("Required columns not found in shapes.txt")
+                }
+                
+                val insertStmt = db.compileStatement(
+                    "INSERT INTO shapes (shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence) VALUES (?, ?, ?, ?)"
+                )
+                
+                reader.forEachLine { line ->
+                    val fields = line.split(",").map { it.trim() }
+                    if (fields.size >= maxOf(shapeIdIndex, shapePtLatIndex, shapePtLonIndex, shapePtSequenceIndex) + 1) {
+                        val shapeId = fields[shapeIdIndex]
+                        val shapePtLat = fields[shapePtLatIndex].toDoubleOrNull() ?: 0.0
+                        val shapePtLon = fields[shapePtLonIndex].toDoubleOrNull() ?: 0.0
+                        val shapePtSequence = fields[shapePtSequenceIndex].toIntOrNull() ?: 0
+                        
+                        insertStmt.bindString(1, shapeId)
+                        insertStmt.bindDouble(2, shapePtLat)
+                        insertStmt.bindDouble(3, shapePtLon)
+                        insertStmt.bindLong(4, shapePtSequence.toLong())
+                    insertStmt.executeInsert()
+                    insertStmt.clearBindings()
+                    }
+                }
+            }
+
+            Log.d("GTFSHelper", "Successfully parsed and inserted GTFS data")
         } catch (e: Exception) {
             Log.e("GTFSHelper", "Error parsing GTFS data: ${e.message}")
+            throw e
         }
     }
 
@@ -708,33 +836,20 @@ class GTFSHelper(private val context: Context) {
         return try {
             val cursor = database.rawQuery(
                 """
-                SELECT shape_pt_lat, shape_pt_lon 
-                FROM shapes 
-                WHERE shape_id IN (
-                    SELECT shape_id 
-                    FROM trips 
-                    WHERE route_id IN (
-                        SELECT route_id 
-                        FROM routes 
-                        WHERE route_short_name IN (
-                            SELECT route_short_name 
-                            FROM routes 
-                            WHERE route_id IN (
-                                SELECT route_id 
-                                FROM trips 
-                                WHERE trip_id IN (
-                                    SELECT trip_id 
-                                    FROM stop_times 
-                                    WHERE stop_id IN (
+                WITH source_stops AS (
                                         SELECT stop_id 
                                         FROM stops 
                                         WHERE stop_name = ? OR stop_name = ?
-                                    )
-                                )
-                            )
-                        )
-                    )
+                ),
+                route_trips AS (
+                    SELECT DISTINCT t.shape_id
+                    FROM trips t
+                    JOIN stop_times st ON t.trip_id = st.trip_id
+                    WHERE st.stop_id IN (SELECT stop_id FROM source_stops)
                 )
+                SELECT shape_pt_lat, shape_pt_lon 
+                FROM shapes 
+                WHERE shape_id IN (SELECT shape_id FROM route_trips)
                 ORDER BY shape_pt_sequence
                 """,
                 arrayOf(source, destination)
@@ -755,20 +870,35 @@ class GTFSHelper(private val context: Context) {
         return try {
             val cursor = database.rawQuery(
                 """
-                SELECT AVG(EXTRACT(EPOCH FROM (arrival_time - departure_time))/60) 
-                FROM stop_times 
-                WHERE stop_id IN (
+                SELECT st1.arrival_time, st2.departure_time
+                FROM stop_times st1
+                JOIN stop_times st2 ON st1.trip_id = st2.trip_id
+                WHERE st1.stop_id IN (
                     SELECT stop_id 
                     FROM stops 
-                    WHERE stop_name = ? OR stop_name = ?
+                    WHERE stop_name = ?
                 )
+                AND st2.stop_id IN (
+                    SELECT stop_id 
+                    FROM stops 
+                    WHERE stop_name = ?
+                )
+                AND st1.stop_sequence < st2.stop_sequence
+                LIMIT 1
                 """,
                 arrayOf(source, destination)
             )
             
             if (cursor.moveToFirst()) {
-                val minutes = cursor.getInt(0)
+                val arrivalTime = cursor.getString(0)
+                val departureTime = cursor.getString(1)
                 cursor.close()
+                
+                // Calculate time difference in minutes
+                val arrivalSeconds = timeToSeconds(arrivalTime)
+                val departureSeconds = timeToSeconds(departureTime)
+                val minutes = (arrivalSeconds - departureSeconds) / 60
+                
                 "$minutes minutes"
             } else {
                 cursor.close()
@@ -786,7 +916,7 @@ class GTFSHelper(private val context: Context) {
             // First check if database is accessible
             if (!isDatabaseAccessible()) {
                 Log.e("GTFSHelper", "Database is not accessible")
-                return getSampleRouteInfo(source, destination)
+                return "Error: GTFS database not available"
             }
             
             val cursor = database.rawQuery(
@@ -820,11 +950,11 @@ class GTFSHelper(private val context: Context) {
             } else {
                 cursor.close()
                 Log.w("GTFSHelper", "No route information available for $source to $destination")
-                return getSampleRouteInfo(source, destination)
+                return "No route information available"
             }
         } catch (e: Exception) {
             Log.e("GTFSHelper", "Error getting route information: ${e.message}", e)
-            return getSampleRouteInfo(source, destination)
+            return "Error getting route information: ${e.message}"
         }
     }
 
@@ -835,7 +965,7 @@ class GTFSHelper(private val context: Context) {
             // First check if database is accessible
             if (!isDatabaseAccessible()) {
                 Log.e("GTFSHelper", "Database is not accessible")
-                return getSampleStopInfo(stopName)
+                return "Error: GTFS database not available"
             }
             
             val cursor = database.rawQuery(
@@ -869,11 +999,11 @@ class GTFSHelper(private val context: Context) {
                 return response
             } else {
                 Log.w("GTFSHelper", "No upcoming arrivals for $stopName")
-                return getSampleStopInfo(stopName)
+                return "No upcoming arrivals available"
             }
         } catch (e: Exception) {
             Log.e("GTFSHelper", "Error getting stop information: ${e.message}", e)
-            return getSampleStopInfo(stopName)
+            return "Error getting stop information: ${e.message}"
         }
     }
 
@@ -917,28 +1047,6 @@ class GTFSHelper(private val context: Context) {
             return false
         }
     }
-
-    // Provide sample data for testing when the database is not accessible
-    private fun getSampleRouteInfo(source: String, destination: String): String {
-        val routes = listOf(
-            Triple("Route 2", "City Express", "08:30"),
-            Triple("Route 15", "Metro Link", "09:15"),
-            Triple("Route 7", "Downtown Express", "10:00")
-        )
-        val randomRoute = routes.random()
-        return "Route: ${randomRoute.first} (${randomRoute.second})\nNext departure: ${randomRoute.third}\n\n[Sample data - GTFS database not available]"
-    }
-
-    private fun getSampleStopInfo(stopName: String): String {
-        val times = listOf(
-            Pair("Route 2", "08:30"),
-            Pair("Route 15", "09:15"),
-            Pair("Route 7", "10:00")
-        )
-        
-        val arrivals = times.joinToString("\n") { "${it.first} - ${it.second}" }
-        return "Next arrivals at $stopName:\n$arrivals\n\n[Sample data - GTFS database not available]"
-    }
     
     /**
      * Search for stop names that match the query string
@@ -948,86 +1056,151 @@ class GTFSHelper(private val context: Context) {
     fun searchStops(query: String): List<String> {
         Log.d("GTFSHelper", "Searching for stops with query: '$query'")
         
-        if (query.isEmpty()) return emptyList() // Show suggestions from the first letter
-        
         try {
             // First check if database is accessible
             if (!isDatabaseAccessible()) {
                 Log.e("GTFSHelper", "Database is not accessible for stop search")
-                return getSampleStops(query)
+                return emptyList()
             }
             
-            Log.d("GTFSHelper", "Database is accessible, executing query for: '$query'")
+            // Log the total number of stops in the database
+            val countCursor = database.rawQuery("SELECT COUNT(*) FROM stops", null)
+            if (countCursor.moveToFirst()) {
+                val totalStops = countCursor.getInt(0)
+                Log.d("GTFSHelper", "Total stops in database: $totalStops")
+            }
+            countCursor.close()
             
-            // Enhanced query that includes route information when available
-            val cursor = database.rawQuery("""
-                SELECT DISTINCT s.stop_name, r.route_short_name, r.route_long_name 
+            // Use a case-insensitive search with wildcards
+            val searchQuery = "%$query%"
+            val cursor = database.rawQuery(
+                """
+                SELECT DISTINCT s.stop_name, r.route_short_name
                 FROM stops s
                 LEFT JOIN stop_times st ON s.stop_id = st.stop_id
                 LEFT JOIN trips t ON st.trip_id = t.trip_id
                 LEFT JOIN routes r ON t.route_id = r.route_id
                 WHERE s.stop_name LIKE ? 
-                GROUP BY s.stop_name
-                ORDER BY s.stop_name
+                GROUP BY s.stop_name, r.route_short_name
+                ORDER BY s.stop_name, r.route_short_name
                 LIMIT 15
-            """, arrayOf("%$query%"))
-            
-            val stopNames = mutableListOf<String>()
-            while (cursor.moveToNext()) {
-                val stopName = cursor.getString(0)
-                val routeShortName = cursor.getString(1) ?: ""
-                val routeLongName = cursor.getString(2) ?: ""
-                
-                // Format the stop name with route info if available
-                val formattedStop = if (routeShortName.isNotEmpty()) {
-                    "$stopName (Route $routeShortName)"
+                """,
+                arrayOf(searchQuery)
+            )
+
+            val stops = mutableListOf<String>()
+            cursor.use {
+                while (it.moveToNext()) {
+                    val stopName = it.getString(0)
+                    val routeName = it.getString(1)
+                    
+                    if (routeName != null) {
+                        stops.add("$stopName (Route $routeName)")
                 } else {
-                    stopName
+                        stops.add(stopName)
+                    }
                 }
-                
-                stopNames.add(formattedStop)
-            }
-            cursor.close()
-            
-            Log.d("GTFSHelper", "Found ${stopNames.size} stops matching '$query'")
-            
-            // If no results found in database, return sample stops
-            if (stopNames.isEmpty()) {
-                Log.d("GTFSHelper", "No stops found in database, using sample stops")
-                return getSampleStops(query)
             }
             
-            return stopNames
+            Log.d("GTFSHelper", "Found ${stops.size} stops matching '$query': $stops")
+            return stops
         } catch (e: Exception) {
             Log.e("GTFSHelper", "Error searching for stops: ${e.message}", e)
-            return getSampleStops(query)
+            return emptyList()
         }
     }
-    
-    /**
-     * Generate sample stop names for testing
-     */
-    private fun getSampleStops(query: String): List<String> {
-        val sampleStops = listOf(
-            "Central Station (Route 1)",
-            "Downtown Terminal (Route 2)",
-            "University Stop (Route 3)",
-            "Hospital Main Entrance (Route 4)",
-            "Market Square (Route 5)",
-            "Business District (Route 1)",
-            "Residential Area (Route 2)",
-            "Shopping Center (Route 3)",
-            "Sports Complex (Route 4)",
-            "International Airport (Route 5)",
-            "City Hall (Route 1)",
-            "Museum District (Route 2)",
-            "Library (Route 3)",
-            "Community Center (Route 4)",
-            "Park Entrance (Route 5)"
-        )
-        
-        return sampleStops.filter { 
-            it.contains(query, ignoreCase = true) 
+
+    private fun verifyDatabaseContents() {
+        try {
+            // Get detailed database contents
+            val dbContents = getDetailedDatabaseContents()
+            Log.d("GTFSHelper", "Database contents:\n$dbContents")
+            
+            // Check if we can find specific stops from the GTFS data
+            val testStops = listOf("Kenyatta National Hospital", "University Of Nairobi", "Aga Khan Hospital")
+            for (stop in testStops) {
+                val cursor = database.rawQuery(
+                    "SELECT stop_name FROM stops WHERE stop_name LIKE ?",
+                    arrayOf("%$stop%")
+                )
+                if (cursor.moveToFirst()) {
+                    Log.d("GTFSHelper", "Found stop in database: ${cursor.getString(0)}")
+                } else {
+                    Log.e("GTFSHelper", "Could not find stop in database: $stop")
+            }
+            cursor.close()
+            }
+            
+            // If database is empty, recreate it
+            val countCursor = database.rawQuery("SELECT COUNT(*) FROM stops", null)
+            if (countCursor.moveToFirst() && countCursor.getInt(0) == 0) {
+                Log.e("GTFSHelper", "Database is empty, recreating it")
+                createAndPopulateDatabase()
+            }
+            countCursor.close()
+        } catch (e: Exception) {
+            Log.e("GTFSHelper", "Error verifying database contents: ${e.message}")
+            createAndPopulateDatabase()
+        }
+    }
+
+    fun getDatabaseStats(): String {
+        try {
+            val cursor = database.rawQuery("SELECT COUNT(*) FROM stops", null)
+            val count = if (cursor.moveToFirst()) cursor.getInt(0) else 0
+            cursor.close()
+            
+            val sampleCursor = database.rawQuery("SELECT stop_name FROM stops LIMIT 5", null)
+            val sampleStops = mutableListOf<String>()
+            while (sampleCursor.moveToNext()) {
+                sampleStops.add(sampleCursor.getString(0))
+            }
+            sampleCursor.close()
+            
+            return "Total stops in database: $count\nSample stops: ${sampleStops.joinToString(", ")}"
+        } catch (e: Exception) {
+            return "Error getting database stats: ${e.message}"
+        }
+    }
+
+    fun getDetailedDatabaseContents(): String {
+        try {
+            val result = StringBuilder()
+            
+            // Get total count of stops
+            val countCursor = database.rawQuery("SELECT COUNT(*) FROM stops", null)
+            val totalStops = if (countCursor.moveToFirst()) countCursor.getInt(0) else 0
+            countCursor.close()
+            result.append("Total stops in database: $totalStops\n\n")
+            
+            // Get sample of stops with all details
+            val sampleCursor = database.rawQuery(
+                "SELECT stop_id, stop_name, stop_lat, stop_lon FROM stops LIMIT 10",
+                null
+            )
+            result.append("Sample stops (first 10):\n")
+            while (sampleCursor.moveToNext()) {
+                val stopId = sampleCursor.getString(0)
+                val stopName = sampleCursor.getString(1)
+                val lat = sampleCursor.getDouble(2)
+                val lon = sampleCursor.getDouble(3)
+                result.append("  - $stopName (ID: $stopId, Lat: $lat, Lon: $lon)\n")
+            }
+            sampleCursor.close()
+            
+            // Get table counts
+            val tables = listOf("routes", "trips", "stop_times", "shapes")
+            result.append("\nTable counts:\n")
+            for (table in tables) {
+                val cursor = database.rawQuery("SELECT COUNT(*) FROM $table", null)
+                val count = if (cursor.moveToFirst()) cursor.getInt(0) else 0
+                cursor.close()
+                result.append("  - $table: $count entries\n")
+            }
+            
+            return result.toString()
+        } catch (e: Exception) {
+            return "Error getting database contents: ${e.message}"
         }
     }
 }

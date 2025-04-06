@@ -17,7 +17,7 @@ import kotlinx.coroutines.withContext
  */
 class LocationUtils(
     private val context: Context,
-    private val gtfsHelper: GTFSHelper? = null
+    val gtfsHelper: GTFSHelper? = null
 ) {
     
     private val sampleLocations = mapOf(

@@ -29,6 +29,9 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.tasks.Tasks
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
 import java.util.*
 
@@ -44,14 +47,30 @@ private suspend fun getCurrentLocation(
 ) {
     try {
         setLocationLoading(true)
-        val location = Tasks.await(fusedLocationClient.lastLocation)
+        val location = withContext(Dispatchers.IO) {
+            try {
+                fusedLocationClient.lastLocation.await()
+            } catch (e: Exception) {
+                Log.e("LocationInputField", "Error getting location: ${e.message}")
+                null
+            }
+        }
+        
         if (location != null) {
             val geocoder = Geocoder(context, Locale.getDefault())
-            val addresses = geocoder.getFromLocation(
-                location.latitude,
-                location.longitude,
-                1
-            )
+            val addresses = withContext(Dispatchers.IO) {
+                try {
+                    geocoder.getFromLocation(
+                        location.latitude,
+                        location.longitude,
+                        1
+                    )
+                } catch (e: Exception) {
+                    Log.e("LocationInputField", "Error geocoding location: ${e.message}")
+                    null
+                }
+            }
+            
             if (addresses?.isNotEmpty() == true) {
                 val address = addresses[0]
                 val locationName = address.getAddressLine(0)
@@ -121,20 +140,34 @@ fun LocationInputField(
         }
     }
 
-    // Debounce the search
+    // Update suggestions when text changes
     LaunchedEffect(value) {
         if (value != searchQuery) {
             searchQuery = value
             isLoading = true
-            delay(300) // Debounce delay
             try {
-                suggestions = if (value.isNotEmpty()) {
-                    locationUtils.getSuggestions(value)
+                // Add a small delay to debounce the search
+                delay(300)
+                
+                // Use GTFSHelper to search for stops
+                val gtfsHelper = locationUtils.gtfsHelper
+                if (gtfsHelper != null) {
+                    val newSuggestions = withContext(Dispatchers.IO) {
+                        if (value.isNotEmpty()) {
+                            gtfsHelper.searchStops(value)
+                        } else {
+                            emptyList()
+                        }
+                    }
+                    suggestions = newSuggestions
+                    showSuggestions = newSuggestions.isNotEmpty()
                 } else {
-                    emptyList()
+                    Log.e("LocationInputField", "GTFSHelper is null")
+                    suggestions = emptyList()
+                    showSuggestions = false
                 }
-                showSuggestions = suggestions.isNotEmpty()
             } catch (e: Exception) {
+                Log.e("LocationInputField", "Error getting suggestions: ${e.message}")
                 suggestions = emptyList()
                 showSuggestions = false
                 onError("Error getting location suggestions: ${e.message}")
@@ -221,7 +254,10 @@ fun LocationInputField(
                                     showSuggestions = false
                                     coroutineScope.launch {
                                         try {
-                                            locationUtils.getCoordinates(suggestion)?.let {
+                                            val coordinates = withContext(Dispatchers.IO) {
+                                                locationUtils.getCoordinates(suggestion)
+                                            }
+                                            coordinates?.let {
                                                 onLocationSelected(it)
                                             }
                                         } catch (e: Exception) {
