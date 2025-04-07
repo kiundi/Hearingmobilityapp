@@ -19,8 +19,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
 import com.example.hearingmobilityapp.LocationUtils
@@ -48,7 +49,7 @@ private suspend fun getCoordinatesForLocation(location: String, locationUtils: L
 @Composable
 fun NavigationScreen(
     navController: NavController,
-    viewModel: CommunicationViewModel,
+    viewModel: CommunicationViewModel = viewModel(),
     sharedViewModel: SharedViewModel = viewModel()
 ) {
     var sourceLocation by remember { mutableStateOf("") }
@@ -89,44 +90,37 @@ fun NavigationScreen(
                 )
 
                 Row {
-                    // Saved Routes Button
-                IconButton(onClick = { showSavedRoutes = true }) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.menu_icon),
-                            contentDescription = "Saved Routes",
-                            modifier = Modifier.size(24.dp),
-                            tint = Color(0xFF007AFF)
-                        )
+                    // Real-time Transit Button
+                    IconButton(onClick = { navController.navigate("realTimeTransit") }) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_notification),
+                                contentDescription = "Real-time Transit",
+                                modifier = Modifier.size(24.dp),
+                                tint = Color(0xFF007AFF)
+                            )
                         }
                     }
                     
-                    // Chat Button
-                  /* IconButton(onClick = {
-                        // Save the current route if available
-                        if (sourceLocation.isNotBlank() && destinationLocation.isNotBlank()) {
-                            viewModel.saveRoute(
-                                sourceLocation.trim(),
-                                destinationLocation.trim()
+                    Spacer(modifier = Modifier.width(8.dp))
+                    
+                    // Saved Routes Button
+                    IconButton(onClick = { showSavedRoutes = true }) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_notification),
+                                contentDescription = "Saved Routes",
+                                modifier = Modifier.size(24.dp),
+                                tint = Color(0xFF007AFF)
                             )
                         }
-                        navController.navigate("chatbot")
-                    }) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_notification),
-                            contentDescription = "Chat",
-                            modifier = Modifier.size(24.dp),
-                            tint = Color(0xFF007AFF)
-                        )
-                        }
-                    }*/
+                    }
                 }
             }
-
+            
             Spacer(modifier = Modifier.height(24.dp))
-
-// Source input with autocomplete
+            
+            // Source input with autocomplete
             LocationInputField(
                 value = sourceLocation,
                 onValueChange = {
@@ -148,10 +142,10 @@ fun NavigationScreen(
                     }
                 }
             )
-
+            
             Spacer(modifier = Modifier.height(16.dp))
-
-// Destination input with autocomplete
+            
+            // Destination input with autocomplete
             LocationInputField(
                 value = destinationLocation,
                 onValueChange = {
@@ -172,19 +166,19 @@ fun NavigationScreen(
                     }
                 }
             )
-
+            
             // Area selection removed
             Spacer(modifier = Modifier.height(16.dp))
-
+            
             // Journey Information Card
             if (sourceLocation.isNotBlank() && destinationLocation.isNotBlank()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color.White, shape = RoundedCornerShape(12.dp))
-                            .padding(16.dp)
-                    ) {
+                        .padding(16.dp)
+                ) {
                     Column {
                         Text(
                             text = "Journey Information",
@@ -202,7 +196,7 @@ fun NavigationScreen(
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                        Text(
+                            Text(
                                 text = sourceLocation,
                                 fontSize = 16.sp,
                                 color = Color(0xFF212529)
@@ -226,7 +220,7 @@ fun NavigationScreen(
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                        Text(
+                            Text(
                                 text = destinationLocation,
                                 fontSize = 16.sp,
                                 color = Color(0xFF212529)
@@ -239,8 +233,8 @@ fun NavigationScreen(
             }
             
             // View Route Button
-                    Button(
-                        onClick = {
+            Button(
+                onClick = {
                     if (sourceLocation.isNotBlank() && destinationLocation.isNotBlank()) {
                         // Save the route
                         viewModel.saveRoute(
@@ -248,10 +242,14 @@ fun NavigationScreen(
                             destinationLocation.trim()
                         )
                         
-                        // Get coordinates for source and destination
-                        coroutineScope.launch {
-                            isLoading = true
+                        // Move heavy operations off the main thread
+                        coroutineScope.launch(Dispatchers.IO) {
                             try {
+                                // Update UI to show loading
+                                withContext(Dispatchers.Main) {
+                                    isLoading = true
+                                }
+                                
                                 // Get coordinates for source and destination
                                 val sourceCoords = getCoordinatesForLocation(sourceLocation, locationUtils)
                                 val destCoords = getCoordinatesForLocation(destinationLocation, locationUtils)
@@ -260,19 +258,29 @@ fun NavigationScreen(
                                 val routeData = "$sourceLocation|$destinationLocation|${sourceCoords.component1()}|${sourceCoords.component2()}|${destCoords.component1()}|${destCoords.component2()}"
                                 Log.d("NavigationScreen", "Sending route data: $routeData")
                                 
-                                // Save route data to shared view model for TripDetailsScreen to access
-                                sharedViewModel.updateMessage(routeData)
-                                
-                                // Navigate to trip details screen
-                                navController.navigate("TripDetailsScreen")
+                                // Save route data to shared view model and navigate on the main thread
+                                withContext(Dispatchers.Main) {
+                                    // Save route data to shared view model for TripDetailsScreen to access
+                                    sharedViewModel.updateMessage(routeData)
+                                    
+                                    // Add a small delay to ensure the data is properly set
+                                    delay(100)
+                                    
+                                    // Navigate to trip details screen
+                                    navController.navigate("TripDetailsScreen")
+                                }
                             } catch (e: Exception) {
-                                Log.e("NavigationScreen", "Error getting coordinates: ${e.message}")
-                                snackbarHostState.showSnackbar(
-                                    "Could not find coordinates for the locations. Please try again.",
-                                    duration = SnackbarDuration.Short
-                                )
+                                Log.e("NavigationScreen", "Error getting coordinates: ${e.message}", e)
+                                withContext(Dispatchers.Main) {
+                                    snackbarHostState.showSnackbar(
+                                        "Could not find coordinates for the locations. Please try again.",
+                                        duration = SnackbarDuration.Short
+                                    )
+                                }
                             } finally {
-                                isLoading = false
+                                withContext(Dispatchers.Main) {
+                                    isLoading = false
+                                }
                             }
                         }
                     } else {
@@ -293,7 +301,7 @@ fun NavigationScreen(
                 ),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                        Text(
+                Text(
                     text = "View Route Details",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium
@@ -302,10 +310,10 @@ fun NavigationScreen(
             
             Spacer(modifier = Modifier.weight(1f))
         }
-
+        
         // Observe selected location from the view model
         val selectedLocation by sharedViewModel.message.observeAsState()
-
+        
         LaunchedEffect(selectedLocation) {
             selectedLocation?.let { location ->
                 try {
@@ -321,7 +329,7 @@ fun NavigationScreen(
                                 val destCoords = getCoordinatesForLocation(destinationLocation, locationUtils)
                                 sourcePoint = GeoPoint(sourceCoords.component1(), sourceCoords.component2())
                                 destPoint = GeoPoint(destCoords.component1(), destCoords.component2())
-    } catch (e: Exception) {
+                            } catch (e: Exception) {
                                 Log.e("Navigation", "Error getting coordinates: ${e.message}")
                                 coroutineScope.launch {
                                     snackbarHostState.showSnackbar(
@@ -378,8 +386,8 @@ fun NavigationScreen(
         // Loading indicator
         if (isLoading) {
             Box(
-            modifier = Modifier
-                .fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.5f)),
                 contentAlignment = Alignment.Center
             ) {
@@ -394,8 +402,3 @@ fun NavigationScreen(
         )
     }
 }
-
-
-
-
-

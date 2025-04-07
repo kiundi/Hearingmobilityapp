@@ -77,6 +77,13 @@ fun MainScreen() {
                     communicationViewModel = communicationViewModel
                 )
             }
+            
+            // Add real-time transit screen
+            composable("realTimeTransit") {
+                RealTimeTransitScreen(
+                    navController = bottomNavController
+                )
+            }
         }
     }
 }

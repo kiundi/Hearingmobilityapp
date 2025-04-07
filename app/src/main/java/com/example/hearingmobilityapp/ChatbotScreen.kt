@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -170,6 +172,8 @@ fun ChatbotScreen(
                                         message.contains("from", ignoreCase = true) ||
                                         message.contains("between", ignoreCase = true) -> {
                                             if (source.isNotBlank() && destination.isNotBlank()) {
+                                                // Wait for database to be initialized
+                                                communicationViewModel.isDatabaseReady.first { it }
                                                 communicationViewModel.getRouteInfo(source, destination)
                                             } else {
                                                 "Please specify the source and destination locations."
@@ -179,6 +183,8 @@ fun ChatbotScreen(
                                         message.contains("how long", ignoreCase = true) || 
                                         message.contains("time", ignoreCase = true) -> {
                                             if (source.isNotBlank() && destination.isNotBlank()) {
+                                                // Wait for database to be initialized
+                                                communicationViewModel.isDatabaseReady.first { it }
                                                 communicationViewModel.getRouteTime(source, destination)
                                             } else {
                                                 "Please specify the source and destination locations."
@@ -196,6 +202,8 @@ fun ChatbotScreen(
                                             }.firstOrNull() ?: source
                                             
                                             if (stopName.isNotBlank()) {
+                                                // Wait for database to be initialized
+                                                communicationViewModel.isDatabaseReady.first { it }
                                                 communicationViewModel.getStopInfo(stopName)
                                             } else {
                                                 "Please specify which stop you're asking about."

@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -100,6 +101,22 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
     private val _isWeekend = MutableStateFlow(false)
     val isWeekend: StateFlow<Boolean> = _isWeekend
     
+    // Database initialization state
+    private val _isDatabaseReady = MutableStateFlow(false)
+    val isDatabaseReady: StateFlow<Boolean> = _isDatabaseReady
+    
+    init {
+        // Monitor GTFSHelper database initialization state
+        viewModelScope.launch {
+            gtfsHelper.isDatabaseInitialized.collect { isInitialized ->
+                _isDatabaseReady.value = isInitialized
+                if (isInitialized) {
+                    Log.d("TripDetailsViewModel", "GTFS database is now initialized and ready")
+                }
+            }
+        }
+    }
+    
     // Real-time distance and ETA tracking
     private val _remainingDistance = MutableStateFlow(0.0f)
     val remainingDistance: StateFlow<Float> = _remainingDistance
@@ -127,13 +144,14 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
     ) {
         viewModelScope.launch {
             try {
+                // Wait for database to be initialized before proceeding
+                gtfsHelper.isDatabaseInitialized.first { it }
+                
                 // Check if today is a weekend and update the state
                 _isWeekend.value = gtfsHelper.isWeekend()
                 
                 // Find transit route using GTFS data
-                val transitRouteResult = withContext(Dispatchers.IO) {
-                    transitRouter.findTransitRoute(sourceLocation, destinationLocation)
-                }
+                val transitRouteResult = transitRouter.findTransitRoute(sourceLocation, destinationLocation)
                 
                 // Create a fallback direct route if transit route is null
                 if (transitRouteResult == null) {

@@ -40,7 +40,7 @@ class TransitRouter(private val context: Context) {
      * Finds a transit route between two points, including walking segments
      * @return TransitRoute object or null if no route could be found
      */
-    fun findTransitRoute(start: GeoPoint, end: GeoPoint): TransitRoute? {
+    suspend fun findTransitRoute(start: GeoPoint, end: GeoPoint): TransitRoute? {
         try {
             // Find nearest stops
             val startStop = gtfsHelper.findNearestStop(start)
@@ -152,7 +152,7 @@ class TransitRouter(private val context: Context) {
      * Gets real-time updates for a transit route
      * @return Updated TransitRoute object or null if no updates available
      */
-    fun getRealtimeUpdates(transitRoute: TransitRoute): TransitRoute? {
+    suspend fun getRealtimeUpdates(transitRoute: TransitRoute): TransitRoute? {
         if (transitRoute.tripDetails == null) return transitRoute
         
         try {

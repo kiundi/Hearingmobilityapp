@@ -12,6 +12,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.delay
@@ -60,6 +62,10 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
 
     private val previousRoutes = mutableListOf<SavedRoute>()
     private val gtfsHelper = GTFSHelper(application.applicationContext)
+    
+    // Database initialization state
+    private val _isDatabaseReady = MutableStateFlow(false)
+    val isDatabaseReady: StateFlow<Boolean> = _isDatabaseReady
 
     // Model initialization status
     private val _modelInitStatus = MutableStateFlow(ModelInitStatus.NOT_INITIALIZED)
@@ -91,6 +97,16 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 if (isAuthenticated) {
                     fetchSavedMessages()
                     fetchFavoriteMessages()
+                }
+            }
+        }
+        
+        // Monitor GTFSHelper database initialization state
+        viewModelScope.launch {
+            gtfsHelper.isDatabaseInitialized.collect { isInitialized ->
+                _isDatabaseReady.value = isInitialized
+                if (isInitialized) {
+                    Log.d(TAG, "GTFS database is now initialized and ready")
                 }
             }
         }
@@ -494,14 +510,19 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         return previousRoutes.sortedByDescending { it.timestamp }
     }
 
-    fun getRouteInfo(source: String, destination: String): String {
+    suspend fun getRouteInfo(source: String, destination: String): String {
         Log.d("CommunicationViewModel", "Getting route info from '$source' to '$destination'")
         return try {
             if (source.isBlank() || destination.isBlank()) {
                 Log.w("CommunicationViewModel", "Empty source or destination provided")
                 "Please provide both source and destination locations."
             } else {
-                gtfsHelper.getRouteInfo(source, destination)
+                // Wait for database to be initialized
+                gtfsHelper.isDatabaseInitialized.first { it }
+                
+                val routeInfo = gtfsHelper.getRouteInfo(source, destination)
+                routeInfo?.let { "Route: ${it.routeName} (${it.routeDescription})\nNext departure: ${it.nextDeparture}" } 
+                    ?: "No route information available"
             }
         } catch (e: Exception) {
             Log.e("CommunicationViewModel", "Error in getRouteInfo: ${e.message}", e)
@@ -509,14 +530,19 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    fun getStopInfo(stopName: String): String {
+    suspend fun getStopInfo(stopName: String): String {
         Log.d("CommunicationViewModel", "Getting stop info for '$stopName'")
         return try {
             if (stopName.isBlank()) {
                 Log.w("CommunicationViewModel", "Empty stop name provided")
                 "Please provide a stop name."
             } else {
-                gtfsHelper.getStopInfo(stopName)
+                // Wait for database to be initialized
+                gtfsHelper.isDatabaseInitialized.first { it }
+                
+                val stopInfo = gtfsHelper.getStopInfo(stopName)
+                stopInfo?.let { "Next arrivals at $stopName:\n${it.arrivals.joinToString("\n")}" } 
+                    ?: "No upcoming arrivals available"
             }
         } catch (e: Exception) {
             Log.e("CommunicationViewModel", "Error in getStopInfo: ${e.message}", e)
@@ -524,14 +550,17 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    fun getStopCoordinates(stopName: String): Pair<Double, Double> {
+    suspend fun getStopCoordinates(stopName: String): Pair<Double, Double> {
         Log.d("CommunicationViewModel", "Getting coordinates for stop '$stopName'")
         return try {
             if (stopName.isBlank()) {
                 Log.w("CommunicationViewModel", "Empty stop name provided for coordinates")
                 Pair(0.0, 0.0)
             } else {
-                gtfsHelper.getStopCoordinates(stopName)
+                // Wait for database to be initialized
+                gtfsHelper.isDatabaseInitialized.first { it }
+                
+                gtfsHelper.getStopCoordinates(stopName) ?: Pair(0.0, 0.0)
             }
         } catch (e: Exception) {
             Log.e("CommunicationViewModel", "Error in getStopCoordinates: ${e.message}", e)
@@ -539,13 +568,16 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    fun getRoutePoints(source: String, destination: String): List<Pair<Double, Double>> {
+    suspend fun getRoutePoints(source: String, destination: String): List<Pair<Double, Double>> {
         Log.d("CommunicationViewModel", "Getting route points from '$source' to '$destination'")
         return try {
             if (source.isBlank() || destination.isBlank()) {
                 Log.w("CommunicationViewModel", "Empty source or destination provided for route points")
                 emptyList()
             } else {
+                // Wait for database to be initialized
+                gtfsHelper.isDatabaseInitialized.first { it }
+                
                 gtfsHelper.getRoutePoints(source, destination)
             }
         } catch (e: Exception) {
@@ -554,13 +586,16 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    fun getRouteTime(source: String, destination: String): String {
+    suspend fun getRouteTime(source: String, destination: String): String {
         Log.d("CommunicationViewModel", "Getting route time from '$source' to '$destination'")
         return try {
             if (source.isBlank() || destination.isBlank()) {
                 Log.w("CommunicationViewModel", "Empty source or destination provided for route time")
                 "Please provide both source and destination locations."
             } else {
+                // Wait for database to be initialized
+                gtfsHelper.isDatabaseInitialized.first { it }
+                
                 gtfsHelper.getRouteTime(source, destination)
             }
         } catch (e: Exception) {
@@ -579,6 +614,8 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     fun getGTFSHelper(): GTFSHelper {
         return gtfsHelper
     }
+
+    // isDatabaseReady property is already defined above
 }
 
 enum class ModelInitStatus {

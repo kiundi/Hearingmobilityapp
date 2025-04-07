@@ -11,6 +11,7 @@ import java.io.IOException
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 
 /**
  * Utility class for location-related functionality
@@ -19,6 +20,9 @@ class LocationUtils(
     private val context: Context,
     val gtfsHelper: GTFSHelper? = null
 ) {
+    init {
+        Log.d("LocationUtils", "Initializing LocationUtils, gtfsHelper is ${if (gtfsHelper != null) "provided" else "null"}")
+    }
     
     private val sampleLocations = mapOf(
         "nairobi" to Pair(-1.286389, 36.817223),
@@ -48,19 +52,32 @@ class LocationUtils(
         // First try to get GTFS transit stops if available
         if (gtfsHelper != null) {
             try {
+                Log.d("LocationUtils", "Waiting for GTFS database to be initialized...")
+                // Wait for database to be initialized before searching for stops
+                gtfsHelper.isDatabaseInitialized.first { it }
+                Log.d("LocationUtils", "GTFS database initialized, proceeding with search")
+                
                 val gtfsStops = gtfsHelper.searchStops(query)
+                Log.d("LocationUtils", "searchStops returned ${gtfsStops.size} results")
+                
                 if (gtfsStops.isNotEmpty()) {
                     results.addAll(gtfsStops)
-                    Log.d("LocationUtils", "Found ${gtfsStops.size} GTFS stops for '$query'")
+                    Log.d("LocationUtils", "Found ${gtfsStops.size} GTFS stops for '$query': $gtfsStops")
                     
                     // If we have enough GTFS stops, return them immediately for faster response
                     if (gtfsStops.size >= 5) {
-                        return@withContext gtfsStops.take(10) // Return only GTFS stops if we have enough
+                        val limitedResults = gtfsStops.take(10)
+                        Log.d("LocationUtils", "Returning limited GTFS stops: $limitedResults")
+                        return@withContext limitedResults // Return only GTFS stops if we have enough
                     }
+                } else {
+                    Log.d("LocationUtils", "No GTFS stops found for '$query'")
                 }
             } catch (e: Exception) {
-                Log.e("LocationUtils", "Error getting GTFS stops: ${e.message}")
+                Log.e("LocationUtils", "Error getting GTFS stops: ${e.message}", e)
             }
+        } else {
+            Log.d("LocationUtils", "gtfsHelper is null, skipping GTFS stops search")
         }
         
         try {
@@ -105,10 +122,12 @@ class LocationUtils(
     /**
      * Get stop coordinates for a location string from GTFS data
      */
-    fun getStopCoordinates(location: String): Pair<Double, Double>? {
+    suspend fun getStopCoordinates(location: String): Pair<Double, Double>? {
         if (location.isBlank() || gtfsHelper == null) return null
         
         try {
+            // Wait for database to be initialized
+            gtfsHelper.isDatabaseInitialized.first { it }
             return gtfsHelper.getStopCoordinates(location)
         } catch (e: Exception) {
             Log.e("LocationUtils", "Error getting stop coordinates: ${e.message}")

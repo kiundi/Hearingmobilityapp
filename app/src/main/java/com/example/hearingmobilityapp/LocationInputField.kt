@@ -140,39 +140,72 @@ fun LocationInputField(
         }
     }
 
+    // Create a stable coroutine scope that won't be cancelled when recomposition happens
+    val scope = rememberCoroutineScope()
+    
     // Update suggestions when text changes
     LaunchedEffect(value) {
         if (value != searchQuery) {
             searchQuery = value
             isLoading = true
-            try {
-                // Add a small delay to debounce the search
-                delay(300)
-                
-                // Use GTFSHelper to search for stops
-                val gtfsHelper = locationUtils.gtfsHelper
-                if (gtfsHelper != null) {
-                    val newSuggestions = withContext(Dispatchers.IO) {
-                        if (value.isNotEmpty()) {
-                            gtfsHelper.searchStops(value)
-                        } else {
-                            emptyList()
+            
+            // Launch in the stable scope instead of the LaunchedEffect scope
+            scope.launch {
+                try {
+                    // Add a small delay to debounce the search
+                    delay(300)
+                    
+                    // Use GTFSHelper to search for stops
+                    val gtfsHelper = locationUtils.gtfsHelper
+                    Log.d("LocationInputField", "GTFSHelper instance: ${gtfsHelper != null}")
+                    if (gtfsHelper != null) {
+                        Log.d("LocationInputField", "Searching for stops with query: '$value'")
+                        try {
+                            val newSuggestions = withContext(Dispatchers.IO) {
+                                if (value.isNotEmpty()) {
+                                    Log.d("LocationInputField", "Calling searchStops with query: '$value'")
+                                    val results = gtfsHelper.searchStops(value)
+                                    Log.d("LocationInputField", "searchStops returned ${results.size} results")
+                                    results
+                                } else {
+                                    Log.d("LocationInputField", "Empty query, returning empty list")
+                                    emptyList()
+                                }
+                            }
+                            Log.d("LocationInputField", "Got suggestions: $newSuggestions")
+                            
+                            // Update UI state in the main thread
+                            withContext(Dispatchers.Main) {
+                                suggestions = newSuggestions
+                                showSuggestions = newSuggestions.isNotEmpty()
+                                Log.d("LocationInputField", "showSuggestions set to: $showSuggestions")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("LocationInputField", "Error in searchStops: ${e.message}", e)
+                            withContext(Dispatchers.Main) {
+                                suggestions = emptyList()
+                                showSuggestions = false
+                            }
+                        }
+                    } else {
+                        Log.e("LocationInputField", "GTFSHelper is null")
+                        withContext(Dispatchers.Main) {
+                            suggestions = emptyList()
+                            showSuggestions = false
                         }
                     }
-                    suggestions = newSuggestions
-                    showSuggestions = newSuggestions.isNotEmpty()
-                } else {
-                    Log.e("LocationInputField", "GTFSHelper is null")
-                    suggestions = emptyList()
-                    showSuggestions = false
+                } catch (e: Exception) {
+                    Log.e("LocationInputField", "Error getting suggestions: ${e.message}", e)
+                    withContext(Dispatchers.Main) {
+                        suggestions = emptyList()
+                        showSuggestions = false
+                        onError("Error getting location suggestions: ${e.message}")
+                    }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        isLoading = false
+                    }
                 }
-            } catch (e: Exception) {
-                Log.e("LocationInputField", "Error getting suggestions: ${e.message}")
-                suggestions = emptyList()
-                showSuggestions = false
-                onError("Error getting location suggestions: ${e.message}")
-            } finally {
-                isLoading = false
             }
         }
     }
@@ -236,7 +269,11 @@ fun LocationInputField(
             } else null
         )
 
+        // Log whether suggestions should be shown
+        Log.d("LocationInputField", "Should show suggestions: $showSuggestions, suggestions count: ${suggestions.size}")
+        
         if (showSuggestions && suggestions.isNotEmpty()) {
+            Log.d("LocationInputField", "Displaying suggestions dropdown with ${suggestions.size} items")
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -245,6 +282,7 @@ fun LocationInputField(
             ) {
                 LazyColumn {
                     items(suggestions) { suggestion ->
+                        Log.d("LocationInputField", "Rendering suggestion item: $suggestion")
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
