@@ -260,14 +260,9 @@ fun NavigationScreen(
                                 
                                 // Save route data to shared view model and navigate on the main thread
                                 withContext(Dispatchers.Main) {
-                                    // Save route data to shared view model for TripDetailsScreen to access
-                                    sharedViewModel.updateMessage(routeData)
-                                    
-                                    // Add a small delay to ensure the data is properly set
-                                    delay(100)
-                                    
-                                    // Navigate to trip details screen
+                                    sharedViewModel.updateTripInfo(routeData)
                                     navController.navigate("TripDetailsScreen")
+                                    isLoading = false
                                 }
                             } catch (e: Exception) {
                                 Log.e("NavigationScreen", "Error getting coordinates: ${e.message}", e)

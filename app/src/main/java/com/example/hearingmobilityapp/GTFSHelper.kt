@@ -18,6 +18,30 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.collections.ArrayList
 
+/**
+ * Data class representing a stop in the GTFS system
+ */
+data class GTFSStop(
+    val stop_id: String,
+    val stop_name: String,
+    val stop_lat: Double,
+    val stop_lon: Double
+) {
+    fun toStopEntity(): StopEntity {
+        return StopEntity(
+            stop_id = stop_id,
+            stop_name = stop_name,
+            stop_lat = stop_lat,
+            stop_lon = stop_lon,
+            zone_id = null,
+            stop_url = null,
+            location_type = null,
+            parent_station = null,
+            stop_code = null
+        )
+    }
+}
+
 data class TransitPathSegment(
     val routeId: String,
     val routeName: String,
@@ -39,7 +63,7 @@ data class TransitPathStop(
 )
 
 class GTFSHelper(private val context: Context) {
-    private val stops = mutableListOf<StopEntity>()
+    private val stops = mutableListOf<GTFSStop>()
     private val routes = mutableListOf<RouteEntity>()
     private val trips = mutableListOf<TripEntity>()
     private val stopTimes = mutableListOf<StopTimeEntity>()
@@ -514,7 +538,7 @@ class GTFSHelper(private val context: Context) {
         }
     }
 
-    suspend fun findNearestStop(point: GeoPoint): StopEntity? {
+    suspend fun findNearestStop(point: GeoPoint): GTFSStop? {
         // Wait for database to be initialized
         isDatabaseInitialized.first { it }
         return stops.minByOrNull { stop ->
@@ -527,7 +551,7 @@ class GTFSHelper(private val context: Context) {
      * Find a path between two stops using GTFS data
      * @return List of TransitPathSegment objects representing the path
      */
-    suspend fun findPath(startStop: StopEntity, endStop: StopEntity): List<TransitPathSegment> {
+    suspend fun findPath(startStop: GTFSStop, endStop: GTFSStop): List<TransitPathSegment> {
         // Wait for database to be initialized
         isDatabaseInitialized.first { it }
         val result = mutableListOf<TransitPathSegment>()
@@ -631,7 +655,7 @@ class GTFSHelper(private val context: Context) {
     /**
      * Creates a direct path between two stops as a fallback
      */
-    private suspend fun createDirectPath(startStop: StopEntity, endStop: StopEntity): List<TransitPathSegment> {
+    private suspend fun createDirectPath(startStop: GTFSStop, endStop: GTFSStop): List<TransitPathSegment> {
         try {
             // Create a direct path with a single segment
             val directPoints = listOf(
@@ -2077,6 +2101,63 @@ class GTFSHelper(private val context: Context) {
             return result.toString()
         } catch (e: Exception) {
             return "Error getting database contents: ${e.message}"
+        }
+    }
+
+    /**
+     * Get stops along a route between two points
+     * @param startPoint Starting point of the route
+     * @param endPoint Ending point of the route
+     * @return List of stops along the route
+     */
+    suspend fun getStopsAlongRoute(startPoint: GeoPoint, endPoint: GeoPoint): List<StopEntity> {
+        // Wait for database to be initialized
+        isDatabaseInitialized.first { it }
+        
+        try {
+            // Get all stops within a reasonable distance of the route
+            val cursor = database.rawQuery(
+                """SELECT s.* FROM stops s
+                   WHERE s.stop_lat BETWEEN ? AND ?
+                   AND s.stop_lon BETWEEN ? AND ?
+                   ORDER BY s.stop_name""",
+                arrayOf(
+                    arrayOf(
+                        minOf(startPoint.latitude, endPoint.latitude) - 0.01,
+                        maxOf(startPoint.latitude, endPoint.latitude) + 0.01,
+                        minOf(startPoint.longitude, endPoint.longitude) - 0.01,
+                        maxOf(startPoint.longitude, endPoint.longitude) + 0.01
+                    ).toString()
+                )
+            )
+            
+            val stops = mutableListOf<StopEntity>()
+            while (cursor.moveToNext()) {
+                stops.add(StopEntity(
+                    stop_id = cursor.getString(0),
+                    stop_name = cursor.getString(1),
+                    stop_lat = cursor.getDouble(2),
+                    stop_lon = cursor.getDouble(3),
+                    zone_id = null,
+                    stop_url = null,
+                    location_type = null,
+                    parent_station = null,
+                    stop_code = null
+                ))
+            }
+            cursor.close()
+            
+            // Filter stops to only include those that are reasonably close to the route
+            return stops.filter { stop ->
+                isPointNearLineSegment(
+                    GeoPoint(stop.stop_lat, stop.stop_lon),
+                    startPoint,
+                    endPoint
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("GTFSHelper", "Error getting stops along route: ${e.message}", e)
+            return emptyList()
         }
     }
 }

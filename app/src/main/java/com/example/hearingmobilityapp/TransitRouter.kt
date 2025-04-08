@@ -109,14 +109,14 @@ class TransitRouter(private val context: Context) {
 
             // Create walking routes to and from transit stops
             val walkToFirst = try {
-                calculateWalkingRoute(start, startStop.toGeoPoint())
+                calculateWalkingRoute(start, GeoPoint(startStop.stop_lat, startStop.stop_lon))
             } catch (e: Exception) {
                 Log.e(TAG, "Error calculating walk to first stop: ${e.message}")
                 null
             }
             
             val walkFromLast = try {
-                calculateWalkingRoute(endStop.toGeoPoint(), end)
+                calculateWalkingRoute(GeoPoint(endStop.stop_lat, endStop.stop_lon), end)
             } catch (e: Exception) {
                 Log.e(TAG, "Error calculating walk from last stop: ${e.message}")
                 null

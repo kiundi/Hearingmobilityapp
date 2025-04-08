@@ -1,53 +1,51 @@
 package com.example.hearingmobilityapp
 
-import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
-import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
-import android.location.Location
-import android.location.LocationManager
-import android.os.Bundle
+import android.graphics.PorterDuff
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
 import android.util.LruCache
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.*
@@ -64,10 +62,107 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.Random
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import org.osmdroid.views.CustomZoomButtonsController
+
+
+class TripDetailsState {
+    var mapView: MapView? = null
+    var effectiveLocation: GeoPoint? by mutableStateOf(null)
+    var destinationLocation: GeoPoint? by mutableStateOf(null)
+    var routePoints: List<GeoPoint> by mutableStateOf(emptyList())
+    var navigationStarted: Boolean by mutableStateOf(false)
+    var isLocationTracking: Boolean by mutableStateOf(false)
+    var currentStep: Int by mutableStateOf(0)
+    var totalSteps: Int by mutableStateOf(0)
+    var distanceToDestination: Float by mutableStateOf(0f)
+    var estimatedTimeMinutes: Int by mutableStateOf(0)
+    var nextDirection: String by mutableStateOf("")
+    var mapUpdateJob: Job? = null
+    var lastMapUpdateTime: Long by mutableStateOf(0L)
+
+    fun updateMapWithCurrentLocation(currentLocation: GeoPoint, destLocation: GeoPoint) {
+        mapView?.let { map ->
+            try {
+                // Clear existing overlays
+                map.overlays.clear()
+
+                // Add current location marker
+                val startMarker = Marker(map).apply {
+                    position = currentLocation
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    icon = ResourcesCompat.getDrawable(map.resources, R.drawable.ic_source_marker, null)
+                }
+                map.overlays.add(startMarker)
+
+                // Add destination marker
+                val endMarker = Marker(map).apply {
+                    position = destLocation
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    icon = ResourcesCompat.getDrawable(map.resources, R.drawable.ic_destination_marker, null)
+                }
+                map.overlays.add(endMarker)
+
+                // Force redraw
+                map.invalidate()
+
+                Log.d("TripDetailsScreen", "Map updated with current location: $currentLocation, destination: $destLocation")
+            } catch (e: Exception) {
+                Log.e("TripDetailsScreen", "Error updating map: ${e.message}", e)
+            }
+        }
+    }
+
+    fun updateMapWithRoute(currentLocation: GeoPoint, destLocation: GeoPoint, routePoints: List<GeoPoint>) {
+        mapView?.let { map ->
+            try {
+                Log.d("TripDetailsScreen", "Updating map with route: ${routePoints.size} points")
+                // Clear existing overlays
+                map.overlays.clear()
+                
+                // Add route polyline
+                val routeLine = Polyline(map)
+                routeLine.outlinePaint.color = AndroidColor.parseColor("#007AFF")
+                routeLine.outlinePaint.strokeWidth = 10f
+                
+                // Limit number of points to prevent performance issues
+                val limitedPoints = if (routePoints.size > MAX_ROUTE_POINTS) {
+                    // Sample points evenly
+                    val step = routePoints.size / MAX_ROUTE_POINTS
+                    routePoints.filterIndexed { index, _ -> index % step == 0 }
+                } else {
+                    routePoints
+                }
+                
+                routeLine.setPoints(limitedPoints)
+                map.overlays.add(routeLine)
+                Log.d("TripDetailsScreen", "Added polyline with ${limitedPoints.size} points")
+                
+                // Add current location marker
+                val startMarker = Marker(map)
+                startMarker.position = currentLocation
+                startMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                startMarker.icon = ResourcesCompat.getDrawable(map.resources, R.drawable.ic_source_marker, null)
+                map.overlays.add(startMarker)
+                
+                // Add destination marker
+                val endMarker = Marker(map)
+                endMarker.position = destLocation
+                endMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                endMarker.icon = ResourcesCompat.getDrawable(map.resources, R.drawable.ic_destination_marker, null)
+                map.overlays.add(endMarker)
+                
+                // Force redraw
+                map.invalidate()
+            } catch (e: Exception) {
+                Log.e("TripDetailsScreen", "Error updating route: ${e.message}", e)
+            }
+        }
+    }
+}
 
 data class TripLocation(
     val source: String,
@@ -86,9 +181,411 @@ private var mapUpdateJob: Job? = null
 private var vehicleUpdateJob: Job? = null
 private var lastMapUpdateTime = 0L
 private var lastProgressUpdateTime = 0L
-private val MIN_MAP_UPDATE_INTERVAL = 500L // Increased interval to prevent reference table overflow
-private val MAX_ROUTE_POINTS = 100 // Limit number of route points to improve performance
+private const val MIN_MAP_UPDATE_INTERVAL = 1000L
+private const val MAX_ROUTE_POINTS = 50
 
+private fun generateSampleStops(source: String, destination: String): List<String> {
+    // Generate some sample stops based on source and destination
+    val stops = mutableListOf<String>()
+
+    // Add some generic stops
+    stops.add("$source Station")
+    stops.add("Central Transfer")
+    stops.add("Main Street")
+    stops.add("Downtown")
+    stops.add("$destination Terminal")
+
+    return stops
+}
+
+private fun updateMapRoute(mapView: MapView, current: GeoPoint, destination: GeoPoint, routePoints: List<GeoPoint>) {
+    try {
+        // Clear existing overlays
+        mapView.overlays.clear()
+
+        // Add route polyline
+        val routeLine = Polyline(mapView).apply {
+            outlinePaint.color = AndroidColor.parseColor("#007AFF")
+            outlinePaint.strokeWidth = 14f
+            outlinePaint.strokeCap = Paint.Cap.ROUND
+            outlinePaint.strokeJoin = Paint.Join.ROUND
+            outlinePaint.isAntiAlias = true
+            setPoints(routePoints)
+        }
+        mapView.overlays.add(routeLine)
+
+        // Add markers
+        val sourceMarker = Marker(mapView).apply {
+            position = current
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_notification)
+            infoWindow = null
+        }
+        mapView.overlays.add(sourceMarker)
+
+        val destMarker = Marker(mapView).apply {
+            position = destination
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_notification)
+            infoWindow = null
+        }
+        mapView.overlays.add(destMarker)
+
+        // Force redraw
+        mapView.invalidate()
+
+        // Log the route update for debugging
+        Log.d("TripDetailsScreen", "Map route updated with ${routePoints.size} points from $current to $destination")
+    } catch (e: Exception) {
+        Log.e("TripDetailsScreen", "Error updating map route: ${e.message}", e)
+    }
+}
+
+private fun updateMapWithVehicles(mapView: MapView, vehicles: Map<String, GeoPoint>, selectedVehicle: String?) {
+    try {
+        // Add vehicle markers
+        vehicles.forEach { (id, position) ->
+            val vehicleMarker = Marker(mapView).apply {
+                this.position = position
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                icon = ResourcesCompat.getDrawable(
+                    mapView.resources,
+                    R.drawable.ic_notification, // Using existing drawable
+                    null
+                )
+                // Create a basic InfoWindow
+                infoWindow = null
+            }
+
+            // Highlight selected vehicle
+            if (id == selectedVehicle) {
+                vehicleMarker.icon = ResourcesCompat.getDrawable(
+                    mapView.resources,
+                    R.drawable.ic_notification, // Using existing drawable
+                    null
+                )
+                // Change the color of the icon for selected vehicle
+                vehicleMarker.icon?.setColorFilter(AndroidColor.RED, PorterDuff.Mode.SRC_IN)
+            }
+
+            mapView.overlays.add(vehicleMarker)
+        }
+
+        // Force redraw
+        mapView.invalidate()
+    } catch (e: Exception) {
+        Log.e("TripDetailsScreen", "Error updating vehicles: ${e.message}", e)
+    }
+}
+
+private fun getNextDirection(current: GeoPoint, destLocation: GeoPoint, step: Int, totalSteps: Int): String {
+    // Calculate distance to destination
+    val distance = calculateDistance(current, destLocation)
+
+    // If very close to destination, provide arrival instruction
+    if (distance < 200) { // Within 200 meters
+        return "You are arriving at your destination"
+    }
+
+    // Simple direction calculation based on bearing
+    val bearing = current.bearingTo(destLocation)
+    val direction: String
+    if (bearing < 22.5) {
+        direction = "north"
+    } else if (bearing < 67.5) {
+        direction = "northeast"
+    } else if (bearing < 112.5) {
+        direction = "east"
+    } else if (bearing < 157.5) {
+        direction = "southeast"
+    } else if (bearing < 202.5) {
+        direction = "south"
+    } else if (bearing < 247.5) {
+        direction = "southwest"
+    } else if (bearing < 292.5) {
+        direction = "west"
+    } else if (bearing < 337.5) {
+        direction = "northwest"
+    } else {
+        direction = "north"
+    }
+
+    // Provide more detailed instructions based on step
+    val instruction: String
+    if (step == 0) {
+        instruction = "Head $direction towards your destination"
+    } else if (step == totalSteps - 1) {
+        instruction = "Continue $direction, destination is ahead"
+    } else {
+        instruction = "Continue $direction for ${formatDistanceValue(distance)}"
+    }
+
+    return instruction
+}
+private fun decodePolyline(encoded: String): List<Pair<Double, Double>> {
+    val points = mutableListOf<Pair<Double, Double>>()
+    var index = 0
+    var lat = 0
+    var lng = 0
+
+    while (index < encoded.length) {
+        var result = 1
+        var shift = 0
+        var b: Int
+        do {
+            b = encoded[index++].code - 63 - 1
+            result += b shl shift
+            shift += 5
+        } while (b >= 0x1f)
+        lat += if (result and 1 != 0) -(result shr 1) else result shr 1
+
+        result = 1
+        shift = 0
+        do {
+            b = encoded[index++].code - 63 - 1
+            result += b shl shift
+            shift += 5
+        } while (b >= 0x1f)
+        lng += if (result and 1 != 0) -(result shr 1) else result shr 1
+
+        points.add(Pair(lat * 1e-5, lng * 1e-5))
+    }
+    return points
+}
+// Add these helper functions before TripDetailsScreen composable
+private fun simulateVehiclePositions(current: GeoPoint?, destination: GeoPoint?, routePoints: List<GeoPoint>): Map<String, GeoPoint> {
+    val vehicles = mutableMapOf<String, GeoPoint>()
+    try {
+        if (current == null || destination == null || routePoints.isEmpty()) return vehicles
+
+        val random = Random()
+        // Generate 1-3 vehicles
+        repeat(random.nextInt(3) + 1) { index ->
+            // Place vehicle somewhere along the route
+            val position = if (routePoints.size > 2) {
+                val routeIndex = random.nextInt(routePoints.size)
+                routePoints[routeIndex]
+            } else {
+                // If no route points, generate random position between current and destination
+                val progress = random.nextDouble()
+                val lat = current.latitude + (destination.latitude - current.latitude) * progress
+                val lon = current.longitude + (destination.longitude - current.longitude) * progress
+                GeoPoint(lat, lon)
+            }
+            vehicles["vehicle_$index"] = position
+        }
+    } catch (e: Exception) {
+        Log.e("TripDetailsScreen", "Error simulating vehicles: ${e.message}")
+    }
+    return vehicles
+}
+
+// Add missing functions
+private fun fetchRealRoutePoints(source: GeoPoint?, destination: GeoPoint?): List<GeoPoint> {
+    // Implement a simple route generation for now
+    if (source == null || destination == null) return emptyList()
+    return generateRoutePoints(source, destination, 20)
+}
+
+private fun generateRoutePoints(source: GeoPoint?, destination: GeoPoint?, numPoints: Int): List<GeoPoint> {
+    val points = mutableListOf<GeoPoint>()
+    if (source == null || destination == null || numPoints <= 0) return points
+
+    points.add(source)
+
+    // Generate intermediate points
+    if (numPoints > 2) {
+        for (i in 1 until numPoints - 1) {
+            val ratio = i.toDouble() / (numPoints - 1)
+            val lat = source.latitude + (destination.latitude - source.latitude) * ratio
+            val lon = source.longitude + (destination.longitude - source.longitude) * ratio
+
+            // Add some randomness to make it look like a real route
+            val jitterLat = (Random().nextDouble() - 0.5) * 0.001
+            val jitterLon = (Random().nextDouble() - 0.5) * 0.001
+
+            points.add(GeoPoint(lat + jitterLat, lon + jitterLon))
+        }
+    }
+
+    points.add(destination)
+    return points
+}
+
+private fun calculateDistance(point1: GeoPoint, point2: GeoPoint): Double {
+    return point1.distanceToAsDouble(point2)
+}
+
+private fun calculateEstimatedTime(distance: Double, speedKmh: Double = 5.0): Int {
+    // Convert distance from meters to kilometers, then calculate time in minutes
+    val distanceKm = distance / 1000.0
+    return (distanceKm / speedKmh * 60).toInt()
+}
+
+private fun generateStopsList(route: String, numStops: Int): List<String> {
+    val stops = mutableListOf<String>()
+    if (route.isEmpty() || numStops <= 0) return stops
+
+    val sampleStopNames = listOf("Main St", "Park Ave", "Market St", "Broadway", "5th Ave", "Central Station", "Downtown", "University")
+
+    for (i in 0 until minOf(numStops, sampleStopNames.size)) {
+        stops.add(sampleStopNames[i])
+    }
+
+    return stops
+}
+
+// Renamed to avoid conflict with existing method
+private fun formatDistanceValue(distanceMeters: Double): String {
+    return when {
+        distanceMeters >= 1000.0 -> String.format("%.1f km", distanceMeters / 1000)
+        else -> String.format("%d m", distanceMeters.toInt())
+    }
+}
+
+@Composable
+fun NavigationInstructionsPanel(
+    currentStep: NavigationStep,
+    nextStep: NavigationStep?,
+    progress: Float,
+    estimatedTimeRemaining: Int,
+    distanceRemaining: Double,
+    userLocation: GeoPoint?,
+    expanded: Boolean
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Current instruction
+            Text(
+                text = currentStep.instruction.text,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF212529)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Progress indicator
+            LinearProgressIndicator(
+                progress = progress,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp),
+                color = Color(0xFF007AFF)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Time and distance remaining
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "${estimatedTimeRemaining} min",
+                    fontSize = 14.sp,
+                    color = Color(0xFF6C757D)
+                )
+                Text(
+                    text = formatDistanceValue(distanceRemaining),
+                    fontSize = 14.sp,
+                    color = Color(0xFF6C757D)
+                )
+            }
+
+            // Next instruction if available
+            if (expanded && nextStep != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Next: ${nextStep.instruction.text}",
+                    fontSize = 14.sp,
+                    color = Color(0xFF6C757D)
+                )
+            }
+        }
+    }
+}
+
+// Using the existing models from RealtimeTransitModels.kt
+
+// Add this helper function
+private fun updateMapView(
+    mapView: MapView,
+    effectiveLocation: GeoPoint?,
+    destinationLocation: GeoPoint?,
+    routePoints: List<GeoPoint>
+) {
+    if (effectiveLocation == null || destinationLocation == null) return
+
+    try {
+        // Use a background thread for heavy operations
+        CoroutineScope(Dispatchers.Default).launch {
+            // Clear existing overlays
+            mapView.overlays.clear()
+
+            // Add route polyline
+            if (routePoints.isNotEmpty()) {
+                val routeLine = Polyline(mapView).apply {
+                    outlinePaint.color = AndroidColor.parseColor("#007AFF")
+                    outlinePaint.strokeWidth = 14f
+                    outlinePaint.strokeCap = Paint.Cap.ROUND
+                    outlinePaint.strokeJoin = Paint.Join.ROUND
+                    outlinePaint.isAntiAlias = true
+                    setPoints(routePoints)
+                }
+                mapView.overlays.add(routeLine)
+            }
+
+            // Add markers
+            val sourceMarker = Marker(mapView).apply {
+                position = effectiveLocation
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                icon = ResourcesCompat.getDrawable(mapView.context.resources, R.drawable.ic_source_marker, null)
+                infoWindow = null
+            }
+            mapView.overlays.add(sourceMarker)
+
+            val destMarker = Marker(mapView).apply {
+                position = destinationLocation
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                icon = ResourcesCompat.getDrawable(mapView.context.resources, R.drawable.ic_destination_marker, null)
+                infoWindow = null
+            }
+            mapView.overlays.add(destMarker)
+
+            // Force redraw and center map on route on main thread
+            withContext(Dispatchers.Main) {
+                // Create a bounding box that includes both points
+                val points = mutableListOf(effectiveLocation, destinationLocation)
+                if (routePoints.isNotEmpty()) {
+                    points.addAll(routePoints)
+                }
+                val boundingBox = BoundingBox.fromGeoPoints(points)
+                boundingBox.increaseByScale(1.2f) // Add 20% padding
+                
+                // Set map view bounds and zoom to show the route
+                mapView.zoomToBoundingBox(boundingBox, true, 50)
+                mapView.invalidate()
+                
+                Log.d("TripDetailsScreen", "Map updated and centered on route")
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("TripDetailsScreen", "Error updating map view: ${e.message}")
+    }
+}
+
+@SuppressLint("RememberReturnType")
 @Composable
 fun TripDetailsScreen(
     navController: NavController,
@@ -96,465 +593,215 @@ fun TripDetailsScreen(
     gtfsViewModel: GTFSViewModel = viewModel(
         factory = GTFSViewModel.Factory(LocalContext.current.applicationContext as Application)
     ),
-    communicationViewModel: CommunicationViewModel = viewModel()
+    communicationViewModel: CommunicationViewModel = viewModel(),
+    state: TripDetailsState = remember { TripDetailsState() }
 ) {
-    val tripInfo by sharedViewModel.message.observeAsState("")
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val gtfsHelper = communicationViewModel.getGTFSHelper()
+    
+    // Add missing state variables
+    val tripInfo by sharedViewModel.tripInfo.collectAsState()
+    val tripLocation = remember { mutableStateOf<TripLocation?>(null) }
+    
+    // Collect real-time updates
+    val vehiclePositions by gtfsHelper.vehiclePositions.collectAsState()
+    val tripUpdates by gtfsHelper.tripUpdates.collectAsState()
 
-    // Check if GTFS data is loaded
-    val isGTFSDataLoaded by gtfsViewModel.isDataLoaded.observeAsState(false)
-    val gtfsLoadError by gtfsViewModel.dataLoadingError.observeAsState(null)
+    // Navigation state
+    var currentStopIndex by remember { mutableStateOf(0) }
+    var nextStop by remember { mutableStateOf<StopEntity?>(null) }
+    var navigationInstructions by remember { mutableStateOf("Starting navigation...") }
+    var isMapCentered by remember { mutableStateOf(true) }
+    var stopsAlongRoute by remember { mutableStateOf<List<StopEntity>>(emptyList()) }
 
-    // Log the raw tripInfo for debugging
-    LaunchedEffect(tripInfo) {
-        Log.d("TripDetailsScreen", "Raw trip info: $tripInfo")
+    // Add haptic feedback state
+    var hasVibrated by remember { mutableStateOf(false) }
+    val vibrator = remember {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
     }
 
-    // Parse trip information from SharedViewModel
-    var tripLocation by remember { mutableStateOf<TripLocation?>(null) }
-    
-    // Parse the trip info when it changes
+    // Add these state variables in the TripDetailsScreen composable
+    var showAlert by remember { mutableStateOf(false) }
+    var alertMessage by remember { mutableStateOf("") }
+    var alertType by remember { mutableStateOf(AlertType.INFO) }
+    var nextStopDistance by remember { mutableStateOf(0.0) }
+    var nextStopArrivalTime by remember { mutableStateOf(0) }
+    var currentBearing by remember { mutableStateOf(0f) }
+
+    // Parse trip info and calculate initial details
     LaunchedEffect(tripInfo) {
-        withContext(Dispatchers.IO) {
+        try {
             val parts = tripInfo.split("|")
             if (parts.size >= 6) {
-                // Format is now source|destination|sourceLat|sourceLong|destLat|destLong
-                try {
-                    val sourceLat = parts[2].toDoubleOrNull()
-                    val sourceLong = parts[3].toDoubleOrNull()
-                    val destLat = parts[4].toDoubleOrNull()
-                    val destLong = parts[5].toDoubleOrNull()
+                val sourceLat = parts[2].toDoubleOrNull()
+                val sourceLong = parts[3].toDoubleOrNull()
+                val destLat = parts[4].toDoubleOrNull()
+                val destLong = parts[5].toDoubleOrNull()
+                
+                if (sourceLat != null && sourceLong != null && destLat != null && destLong != null) {
+                    tripLocation.value = TripLocation(
+                        source = parts[0],
+                        destination = parts[1],
+                        sourceLat = sourceLat,
+                        sourceLong = sourceLong,
+                        destLat = destLat,
+                        destLong = destLong
+                    )
                     
-                    // Only create TripLocation if all coordinates are valid
-                    if (sourceLat != null && sourceLong != null && destLat != null && destLong != null) {
-                        tripLocation = TripLocation(
-                            source = parts[0],
-                            destination = parts[1],
-                            sourceLat = sourceLat,
-                            sourceLong = sourceLong,
-                            destLat = destLat,
-                            destLong = destLong
-                        )
-                        Log.d("TripDetailsScreen", "Successfully parsed trip location: $tripLocation")
-                    } else {
-                        Log.e("TripDetailsScreen", "Invalid coordinates in trip data")
-                        tripLocation = null
-                    }
-                } catch (e: Exception) {
-                    Log.e("TripDetailsScreen", "Error parsing trip data: ${e.message}", e)
-                    tripLocation = null
-                }
-            } else {
-                Log.e("TripDetailsScreen", "Insufficient data in trip info: $tripInfo")
-                tripLocation = null
-            }
-        }
-    }
-
-    // Log the parsed tripLocation for debugging
-    LaunchedEffect(tripLocation) {
-        Log.d("TripDetailsScreen", "Parsed TripLocation: $tripLocation")
-    }
-
-    // State variables for navigation
-    val currentLocation = remember(tripLocation) {
-        tripLocation?.let { GeoPoint(it.sourceLat, it.sourceLong) }
-            ?: GeoPoint(NavigationConfig.DEFAULT_COORDINATES.first, NavigationConfig.DEFAULT_COORDINATES.second)
-    }
-    // State for map and navigation
-    var mapView by remember { mutableStateOf<MapView?>(null) }
-    val effectiveLocation = remember(tripLocation) {
-        tripLocation?.let { GeoPoint(it.sourceLat, it.sourceLong) }
-            ?: GeoPoint(NavigationConfig.DEFAULT_COORDINATES.first, NavigationConfig.DEFAULT_COORDINATES.second)
-    }
-    val destinationLocation = remember(tripLocation) {
-        tripLocation?.let { GeoPoint(it.destLat, it.destLong) }
-            ?: GeoPoint(NavigationConfig.DEFAULT_COORDINATES.first, NavigationConfig.DEFAULT_COORDINATES.second)
-    }
-    var routePoints by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
-    var navigationStarted by remember { mutableStateOf(false) }
-    var distanceToDestination by remember { mutableStateOf(0f) }
-    var estimatedTimeMinutes by remember { mutableStateOf(0) }
-    var nextDirection by remember { mutableStateOf("Proceed to start") }
-    var isLocationTracking by remember { mutableStateOf(false) }
-    
-    // Coroutine scopes for map operations
-    val mapUIScope = rememberCoroutineScope()
-    
-    // Map update throttling
-    val MIN_MAP_UPDATE_INTERVAL = 500L // milliseconds
-    var lastMapUpdateTime by remember { mutableStateOf(0L) }
-    var mapUpdateJob by remember { mutableStateOf<Job?>(null) }
-
-    // State for GTFS route information
-    var routeInfo by remember { mutableStateOf("") }
-    var nextStops by remember { mutableStateOf(listOf<String>()) }
-
-    // Navigation step tracking
-    var currentStep by remember { mutableStateOf(0) }
-    var totalSteps by remember { mutableStateOf(5) } // Default number of steps
-
-    var userHasMoved by remember { mutableStateOf(false) }
-
-    // Real-time vehicle tracking
-    val showVehicleTracking = remember { mutableStateOf(false) }
-    val vehiclePositions = remember { mutableStateOf(mapOf<String, GeoPoint>()) }
-    val selectedVehicle = remember { mutableStateOf<String?>(null) }
-    val vehicleInfo = remember { mutableStateOf("") }
-    
-    // Navigation progress
-    val navigationProgress = remember { mutableStateOf(0f) }
-    val remainingDistance = remember { mutableStateOf(0.0) }
-    val remainingTime = remember { mutableStateOf(0) }
-
-    // Get route information from GTFS
-    LaunchedEffect(tripLocation, isGTFSDataLoaded) {
-        if (tripLocation != null && isGTFSDataLoaded) {
-            try {
-                coroutineScope.launch {
                     // Wait for GTFS database to be initialized
-                    communicationViewModel.isDatabaseReady.first { it }
+                    gtfsHelper.isDatabaseInitialized.first { it }
                     
-                    withContext(Dispatchers.IO) {
-                        // Get route info
-                        val source = tripLocation?.source ?: ""
-                        val destination = tripLocation?.destination ?: ""
-                        try {
-                            val routeInfoData = communicationViewModel.getRouteInfo(source, destination)
-                            routeInfo = routeInfoData
-                            Log.d("TripDetailsScreen", "Route info: $routeInfo")
-                        } catch (e: Exception) {
-                            Log.e("TripDetailsScreen", "Error getting route info: ${e.message}")
-                            routeInfo = "Error: Unable to get route information"
-                        }
-
-                        // Get route points from GTFS if available
-                        try {
-                            // Only try to get route points if source and destination are valid
-                            if (source.isNotEmpty() && destination.isNotEmpty()) {
-                                val gtfsRoutePoints = communicationViewModel.getRoutePoints(source, destination)
-                                routePoints = if (gtfsRoutePoints.isNotEmpty()) {
-                                    gtfsRoutePoints.map { GeoPoint(it.first, it.second) }
-                                } else {
-                                    // Fallback to real road route if GTFS doesn't have route points
-                                    // Use the GeoPoint destination variable instead of the String destination variable
-                                    val destGeoPoint = tripLocation?.let { GeoPoint(it.destLat, it.destLong) } ?: GeoPoint(0.0, 0.0)
-                                    fetchRealRoutePoints(currentLocation, destGeoPoint)
-                                }
-                            } else {
-                                // If source or destination is empty, just use a direct route
-                                val destGeoPoint = tripLocation?.let { GeoPoint(it.destLat, it.destLong) } ?: GeoPoint(0.0, 0.0)
-                                routePoints = fetchRealRoutePoints(currentLocation, destGeoPoint)
-                            }
-                            Log.d("TripDetailsScreen", "Route points: ${routePoints.size}")
-                        } catch (e: Exception) {
-                            Log.e("TripDetailsScreen", "Error getting route points: ${e.message}")
-                            // Fallback to real road route
-                            val destGeoPoint = tripLocation?.let { GeoPoint(it.destLat, it.destLong) } ?: GeoPoint(0.0, 0.0)
-                            routePoints = fetchRealRoutePoints(currentLocation, destGeoPoint)
+                    // Get source and destination coordinates from GTFS
+                    val sourceCoords = gtfsHelper.getStopCoordinates(parts[0])
+                    val destCoords = gtfsHelper.getStopCoordinates(parts[1])
+                    
+                    if (sourceCoords != null && destCoords != null) {
+                        val sourcePoint = GeoPoint(sourceCoords.first, sourceCoords.second)
+                        val destPoint = GeoPoint(destCoords.first, destCoords.second)
+                        
+                        // Get stops along the route
+                        stopsAlongRoute = gtfsHelper.getStopsAlongRoute(sourcePoint, destPoint)
+                        
+                        // Get route points from OSRM
+                        val routePoints = fetchRealRoutePoints(sourcePoint, destPoint)
+                        state.routePoints = routePoints
+                        
+                        // Calculate accurate distance and time
+                        val distance = calculateAccurateDistance(routePoints)
+                        val time = calculateAccurateTime(distance)
+                        
+                        state.distanceToDestination = distance.toFloat()
+                        state.estimatedTimeMinutes = time
+                        
+                        if (stopsAlongRoute.isNotEmpty()) {
+                            nextStop = stopsAlongRoute.firstOrNull()
+                            navigationInstructions = "Head to ${nextStop?.stop_name}"
                         }
                         
-                        // Generate sample next stops since getStops is not available
-                        try {
-                            // Generate some sample stops based on source and destination
-                            val stops = generateSampleStops(source, destination)
-                            nextStops = stops
-                            Log.d("TripDetailsScreen", "Next stops: $nextStops")
-                        } catch (e: Exception) {
-                            Log.e("TripDetailsScreen", "Error generating next stops: ${e.message}")
-                            nextStops = emptyList()
-                        }
-                        
-                        // Calculate estimated time based on distance
-                        try {
-                            // Calculate distance between source and destination
-                            val sourcePoint = GeoPoint(tripLocation?.sourceLat ?: 0.0, tripLocation?.sourceLong ?: 0.0)
-                            val destPoint = GeoPoint(tripLocation?.destLat ?: 0.0, tripLocation?.destLong ?: 0.0)
-                            val distance = calculateDistance(sourcePoint, destPoint)
-                            estimatedTimeMinutes = calculateEstimatedTime(distance)
-                            Log.d("TripDetailsScreen", "Estimated time: $estimatedTimeMinutes minutes")
-                        } catch (e: Exception) {
-                            Log.e("TripDetailsScreen", "Error calculating estimated time: ${e.message}")
-                            estimatedTimeMinutes = 0
+                        // Update map immediately
+                        state.mapView?.let { mapView ->
+                            updateMapView(
+                                mapView,
+                                sourcePoint,
+                                destPoint,
+                                routePoints
+                            )
                         }
                     }
                 }
-            } catch (e: Exception) {
-                Log.e("TripDetailsScreen", "Error loading GTFS data: ${e.message}", e)
             }
-        } else {
-            // Set default values if GTFS data is not loaded
-            routeInfo = ""
-            routePoints = emptyList()
-            estimatedTimeMinutes = 0
+        } catch (e: Exception) {
+            Log.e("TripDetailsScreen", "Error parsing trip data: ${e.message}")
         }
     }
-    // Set up the map view
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // Map view
-        AndroidView(
-            factory = { ctx ->
-                MapView(ctx).apply {
-                        Log.d("TripDetailsScreen", "Creating new MapView instance")
-                        clipToOutline = true
-                        
-                        // Configure map settings
-                        Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
-                        setTileSource(TileSourceFactory.MAPNIK)
-                        
-                        // Optimize map performance
-                        maxZoomLevel = 19.0
-                        minZoomLevel = 5.0
-                        isTilesScaledToDpi = true
-                        setMultiTouchControls(true)
-                        
-                        // Add zoom controls for better user experience
-                        setBuiltInZoomControls(true)
-                        // Enable zoom controls visibility
-                        
-                        setScrollableAreaLimitLatitude(MapView.getTileSystem().maxLatitude, MapView.getTileSystem().minLatitude, 0)
-                        
-                        // Ensure handlers are created on UI thread
-                        handler?.removeCallbacksAndMessages(null)
-                        
-                        // Set initial zoom
-                        controller.setZoom(14.5)
-                        
-                        Log.d("TripDetailsScreen", "Initial locations: currentLocation=$currentLocation, destination=$destinationLocation")
-                        
-                        // Draw route and markers immediately on the UI thread
-                        mapUIScope.launch {
-                            try {
-                                if (effectiveLocation != null && destinationLocation != null) {
-                                    Log.d("TripDetailsScreen", "Drawing initial map content")
-                                    
-                                    // Clear any existing overlays
-                                    overlays.clear()
-                                    
-                                    // Add markers
-                                    val sourceMarker = Marker(this@apply).apply {
-            position = effectiveLocation
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                        title = tripLocation?.source ?: "Source"
-                                        icon = ContextCompat.getDrawable(context, R.drawable.ic_notification)
-                                        infoWindow = null // Disable popup to improve performance
-                                    }
-                                    overlays.add(sourceMarker)
-                                    
-                                    val destMarker = Marker(this@apply).apply {
-            position = destinationLocation
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                        title = tripLocation?.destination ?: "Destination"
-                                        icon = ContextCompat.getDrawable(context, R.drawable.ic_notification)
-                                        infoWindow = null // Disable popup to improve performance
-                                    }
-                                    overlays.add(destMarker)
-                                    
-                                    // Draw route line if route points exist, otherwise fetch real road route
-                                    val pointsToUse = if (routePoints.isNotEmpty()) {
-                                        Log.d("TripDetailsScreen", "Drawing route with ${routePoints.size} points")
-                                        routePoints
-                                    } else {
-                                        Log.d("TripDetailsScreen", "No route points available, fetching real road route")
-                                        // Launch a coroutine to fetch the real route
-                                        val sourcePoint = effectiveLocation
-                                        val destPoint = destinationLocation
-                                        
-                                        // Use a temporary list while we fetch the real route
-                                        val tempRoute = generateRoutePoints(sourcePoint, destPoint, 60)
-                                        
-                                        // Start fetching the real route in the background
-                                        mapUIScope.launch {
-                                            try {
-                                                val realRoute = fetchRealRoutePoints(sourcePoint, destPoint)
-                                                // Update the route on the map once we have the real route
-                                                withContext(Dispatchers.Main) {
-                                                    if (isActive) {
-                                                        routePoints = realRoute
-                                                        updateMapRoute(this@apply, sourcePoint, destPoint, realRoute)
-                                                    }
-                                                }
-                                            } catch (e: Exception) {
-                                                Log.e("TripDetailsScreen", "Failed to fetch real route: ${e.message}", e)
-                                            }
-                                        }
-                                        
-                                        // Return the temporary route for now
-                                        tempRoute
-                                    }
-                                    
-                                    // Create polyline with the points
-                                    val line = Polyline(this@apply).apply {
-            outlinePaint.color = AndroidColor.parseColor("#007AFF")
-                                        outlinePaint.strokeWidth = 14f
-                                        outlinePaint.strokeCap = Paint.Cap.ROUND
-                                        outlinePaint.strokeJoin = Paint.Join.ROUND
-            outlinePaint.isAntiAlias = true
-                                        
-                                        // Set points
-                                        setPoints(pointsToUse)
-                                    }
-                                    overlays.add(line)
-                                    
-                                    // Set map center and zoom
-                                    try {
-                                        // Center on both points
-                                        val points = if (routePoints.isNotEmpty()) routePoints else listOf(effectiveLocation, destinationLocation)
-                                        val boundingBox = BoundingBox.fromGeoPoints(points)
-                                        
-                                        // Calculate padding (in pixels)
-                                        val paddingPx = 100
-                                        zoomToBoundingBox(boundingBox.increaseByScale(1.5f), true, paddingPx, 14.5, 500L)
-                                        
-                                        Log.d("TripDetailsScreen", "Set bounding box: $boundingBox")
-                                    } catch (e: Exception) {
-                                        Log.e("TripDetailsScreen", "Error setting bounding box: ${e.message}", e)
-                                        
-                                        // Fallback to simple center and zoom
-                                        val midLat = (effectiveLocation.latitude + destinationLocation.latitude) / 2
-                                        val midLon = (effectiveLocation.longitude + destinationLocation.longitude) / 2
-                                        controller.setCenter(GeoPoint(midLat, midLon))
-                                        controller.setZoom(14.0)
-                                    }
-                                    
-                                    // Force map to redraw
-                                    invalidate()
-                                    Log.d("TripDetailsScreen", "Initial map setup complete")
-                                } else {
-                                    Log.w("TripDetailsScreen", "Missing location data for map")
-                                }
-                            } catch (e: Exception) {
-                                Log.e("TripDetailsScreen", "Error in initial map setup: ${e.message}", e)
-                            }
-                        }
-                        
-                        // Store reference to map view
-                        mapView = this
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-                update = { view ->
-                    // Skip updates if not needed
-                    if (routePoints.isEmpty() && !navigationStarted && view.overlays.isNotEmpty()) {
-                        return@AndroidView
-                    }
-                    
-                    // Apply throttling to prevent too frequent updates
-                    val currentTime = System.currentTimeMillis()
-                    if (currentTime - lastMapUpdateTime < MIN_MAP_UPDATE_INTERVAL) {
-                        return@AndroidView
-                    }
-                    lastMapUpdateTime = currentTime
-                    
-                    // Cancel any ongoing update
-                    mapUpdateJob?.cancel()
-                    
-                    // Update the map
-                    mapUpdateJob = mapUIScope.launch {
-                        Log.d("TripDetailsScreen", "Updating map view with ${routePoints.size} route points")
-                        try {
-                            // Clear previous overlays
-                            view.overlays.clear()
+        // Map container
+        Card(
+            modifier = Modifier.fillMaxSize(),
+            shape = RoundedCornerShape(0.dp)
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Map view
+                AndroidView(
+                    factory = { ctx ->
+                        MapView(ctx).apply {
+                            Configuration.getInstance()
+                                .load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+                            setTileSource(TileSourceFactory.MAPNIK)
+                            maxZoomLevel = 19.0
+                            minZoomLevel = 5.0
+                            isTilesScaledToDpi = true
+                            setMultiTouchControls(true)
                             
-                            // Add markers and route
-                            if (effectiveLocation != null && destinationLocation != null) {
-                                // Add source marker
-                                val sourceMarker = Marker(view).apply {
-                                    position = effectiveLocation
-                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                    title = tripLocation?.source ?: "Source"
-                                    icon = ContextCompat.getDrawable(context, R.drawable.ic_notification)
-                                    infoWindow = null // Disable popup to improve performance
-                                }
-                                view.overlays.add(sourceMarker)
-                                
-                                // Add destination marker
-                                val destMarker = Marker(view).apply {
-                                    position = destinationLocation
-                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                    title = tripLocation?.destination ?: "Destination"
-                                    icon = ContextCompat.getDrawable(context, R.drawable.ic_notification)
-                                    infoWindow = null // Disable popup to improve performance
-                                }
-                                view.overlays.add(destMarker)
-                                
-                                // Draw route line
-                                val pointsToUse = if (routePoints.size > 1) {
-                                    // Use provided route points if available
-                                    routePoints
-                                } else {
-                                    // Generate a more realistic route if no route points provided
-                                    generateRoutePoints(effectiveLocation, destinationLocation, 20)
-                                }
-                                
-                                val line = Polyline(view).apply {
-                                    outlinePaint.color = AndroidColor.parseColor("#007AFF")
-                                    outlinePaint.strokeWidth = 14f
-                                    outlinePaint.strokeCap = Paint.Cap.ROUND
-                                    outlinePaint.strokeJoin = Paint.Join.ROUND
-                                    outlinePaint.isAntiAlias = true
-                                    
-                                    // Set points
-                                    setPoints(pointsToUse)
-                                }
-                                view.overlays.add(line)
-                                
-                                // Update zoom if not navigating
-                                if (!navigationStarted) {
-                                    try {
-                                        // Center on both points
-                                        val points = if (routePoints.isNotEmpty()) routePoints else listOf(effectiveLocation, destinationLocation)
-                                        val boundingBox = BoundingBox.fromGeoPoints(points)
-                                        view.zoomToBoundingBox(boundingBox.increaseByScale(1.5f), true, 100)
-                                    } catch (e: Exception) {
-                                        Log.e("TripDetailsScreen", "Error setting bounding box on update: ${e.message}", e)
-                                        
-                                        // Fallback to simple center and zoom
-                                        val midLat = (effectiveLocation.latitude + destinationLocation.latitude) / 2
-                                        val midLon = (effectiveLocation.longitude + destinationLocation.longitude) / 2
-                                        view.controller.setCenter(GeoPoint(midLat, midLon))
-                                        view.controller.setZoom(14.0)
+                            // Improve zoom controls visibility and position
+                            setBuiltInZoomControls(true)
+                            zoomController.setVisibility(CustomZoomButtonsController.Visibility.ALWAYS)
+                            zoomController.setZoomInEnabled(true)
+                            zoomController.setZoomOutEnabled(true)
+                            
+                            setUseDataConnection(true)
+                            setKeepScreenOn(true)
+                            setMapOrientation(0f)
+                            setHorizontalMapRepetitionEnabled(false)
+                            setVerticalMapRepetitionEnabled(false)
+                            
+                            state.mapView = this
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    update = { mapView ->
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - state.lastMapUpdateTime >= MIN_MAP_UPDATE_INTERVAL) {
+                            state.lastMapUpdateTime = currentTime
+                            state.effectiveLocation?.let { source ->
+                                state.destinationLocation?.let { dest ->
+                                    scope.launch {
+                                        updateMapView(
+                                            mapView,
+                                            source,
+                                            dest,
+                                            state.routePoints
+                                        )
                                     }
                                 }
-                                
-                                // Force map to redraw
-                                view.invalidate()
                             }
-                        } catch (e: Exception) {
-                            Log.e("TripDetailsScreen", "Error updating map: ${e.message}", e)
                         }
                     }
+                )
+
+                // Back button
+                IconButton(
+                    onClick = { navController.popBackStack() },
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp)
+                        .background(Color.White, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color(0xFF007AFF)
+                    )
                 }
-        )
-        
-        // Back button
-        IconButton(
-            onClick = { navController.popBackStack() },
-            modifier = Modifier
-                .padding(16.dp)
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(Color.White)
-        ) {
-            Icon(
-                imageVector = Icons.Default.ArrowBack,
-                contentDescription = "Back",
-                tint = Color(0xFF007AFF)
-            )
+
+                // Recenter button
+                IconButton(
+                    onClick = {
+                        state.effectiveLocation?.let { currentLocation ->
+                            state.mapView?.controller?.animateTo(currentLocation)
+                            isMapCentered = true
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .background(Color.White, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = "Recenter",
+                        tint = if (isMapCentered) Color(0xFF007AFF) else Color.Gray
+                    )
+                }
+            }
         }
-        
-        // Trip information card
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .padding(16.dp)
-        ) {
-            // Trip details card
+
+        // Navigation instructions
+        if (state.navigationStarted) {
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .align(Alignment.TopCenter),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
@@ -563,16 +810,49 @@ fun TripDetailsScreen(
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
-                    // Source and destination
                     Text(
-                        text = "Trip Details",
-                        fontSize = 20.sp,
+                        text = navigationInstructions,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF212529)
                     )
                     
-                    Spacer(modifier = Modifier.height(12.dp))
-                    
+                    nextStop?.let { stop ->
+                        Text(
+                            text = "Next Stop: ${stop.stop_name}",
+                            fontSize = 14.sp,
+                            color = Color(0xFF6C757D)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Trip details card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Trip Details",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF212529)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Source and destination
+                tripLocation.value?.let { location ->
                     // Source
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
@@ -583,12 +863,12 @@ fun TripDetailsScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = tripLocation?.source ?: "Unknown source",
+                            text = location.source,
                             fontSize = 16.sp,
                             color = Color(0xFF212529)
                         )
                     }
-                    
+
                     Spacer(modifier = Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
@@ -598,7 +878,7 @@ fun TripDetailsScreen(
                             .background(Color(0xFFDEDEDE))
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    
+
                     // Destination
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
@@ -609,296 +889,240 @@ fun TripDetailsScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = tripLocation?.destination ?: "Unknown destination",
+                            text = location.destination,
                             fontSize = 16.sp,
                             color = Color(0xFF212529)
                         )
                     }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Trip info
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Distance
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "Distance",
-                                fontSize = 14.sp,
-                                color = Color(0xFF6C757D)
-                            )
-                            Text(
-                                text = "${String.format("%.1f", distanceToDestination)} km",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF212529)
-                            )
-                        }
-                        
-                        // Estimated time
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "Est. Time",
-                                fontSize = 14.sp,
-                                color = Color(0xFF6C757D)
-                            )
-                            Text(
-                                text = "$estimatedTimeMinutes min",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF212529)
-                            )
-                        }
-                        
-                        // Next direction
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "Next",
-                                fontSize = 14.sp,
-                                color = Color(0xFF6C757D)
-                            )
-                            Text(
-                                text = nextDirection,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF212529)
-                            )
-                        }
-                    }
-                    
-                    // Show route info from GTFS if available
-                    if (routeInfo.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Distance and time info
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "Route Information",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF212529)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = routeInfo,
+                            text = "Distance",
                             fontSize = 14.sp,
                             color = Color(0xFF6C757D)
                         )
-                    }
-                    
-                    // Show next stops if available
-                    if (nextStops.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Next Stops",
+                            text = "${String.format("%.1f", state.distanceToDestination / 1000)} km",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF212529)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        nextStops.forEach { stop ->
-                            Text(
-                                text = "• $stop",
-                                fontSize = 14.sp,
-                                color = Color(0xFF6C757D)
-                            )
-                        }
                     }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Start/End Navigation button
-                    Button(
-                        onClick = {
-                            navigationStarted = !navigationStarted
-                            if (navigationStarted) {
-                                // No need to reconfigure the map here
-                                // Start navigation
-                                isLocationTracking = true
-                                currentStep = 0
-                                // Calculate total steps based on route points
-                                totalSteps = (routePoints.size / 10).coerceAtLeast(5)
-                                
-                                // Start vehicle tracking if available
-                                showVehicleTracking.value = true
-                            } else {
-                                // End navigation
-                                isLocationTracking = false
-                                showVehicleTracking.value = false
-                                
-                                // Cancel any ongoing jobs
-                                mapUpdateJob?.cancel()
-                                vehicleUpdateJob?.cancel()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (navigationStarted) Color(0xFFDC3545) else Color(0xFF007AFF)
-                        )
-                    ) {
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = if (navigationStarted) "End Navigation" else "Start Navigation",
-                            color = Color.White,
+                            text = "Est. Time",
+                            fontSize = 14.sp,
+                            color = Color(0xFF6C757D)
+                        )
+                        Text(
+                            text = "${state.estimatedTimeMinutes} min",
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(vertical = 8.dp)
+                            color = Color(0xFF212529)
                         )
                     }
                 }
-            }
-        }
-        
-        // Snackbar host
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter)
-        )
-    }
-    
-    // Simulate user movement detection
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            delay(1000) // Check every second
-            // Simulate user movement detection logic
-            if (currentLocation != GeoPoint(tripLocation?.sourceLat ?: 0.0, tripLocation?.sourceLong ?: 0.0)) {
-                userHasMoved = true
-            }
-        }
-    }
-    
-    // Update map with current location during navigation
-    LaunchedEffect(currentLocation, navigationStarted) {
-        if (navigationStarted) {
-            // Cancel any existing job first to prevent multiple parallel updates
-            mapUpdateJob?.cancel()
-            
-            // Start a new update job on the IO dispatcher to prevent ANR
-            mapUpdateJob = coroutineScope.launch(Dispatchers.IO) {
-                var lastUpdateTime = 0L
-                val minUpdateInterval = 500L // Minimum time between updates in ms
-                
-                while (isActive) {
-                    try {
-                        val currentTime = System.currentTimeMillis()
-                        // Only update if enough time has passed since last update
-                        if (currentTime - lastUpdateTime >= minUpdateInterval) {
-                            lastUpdateTime = currentTime
-                            
-                            // Calculate values off the main thread
-                            val distance = calculateDistance(currentLocation, destinationLocation)
-                            val estimatedTime = calculateEstimatedTime(distance)
-                            val nextDir = getNextDirection(currentLocation, destinationLocation, currentStep)
-                            
-                            // Update UI values on the main thread
-                            withContext(Dispatchers.Main) {
-                                distanceToDestination = distance
-                                estimatedTimeMinutes = estimatedTime
-                                nextDirection = nextDir
-                                
-                                // Update navigation progress
-                                val totalDistance = calculateDistance(
-                                    GeoPoint(tripLocation?.sourceLat ?: 0.0, tripLocation?.sourceLong ?: 0.0),
-                                    destinationLocation
-                                )
-                                navigationProgress.value = ((totalDistance - distance) / totalDistance).coerceIn(0f, 1f)
-                                remainingDistance.value = distance.toDouble()
-                                remainingTime.value = estimatedTime
-                                
-                                // Update current step based on progress
-                                currentStep = (navigationProgress.value * totalSteps).toInt().coerceIn(0, totalSteps - 1)
-                                
-                                // Check if destination reached
-                                if (distance < 0.1f) { // Within 100 meters
-                                    navigationStarted = false
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("You have reached your destination!")
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Navigation button
+                Button(
+                    onClick = {
+                        state.navigationStarted = !state.navigationStarted
+                        if (state.navigationStarted) {
+                            // Start navigation updates
+                            scope.launch {
+                                while (state.navigationStarted) {
+                                    try {
+                                        // Update vehicle positions and route
+                                        state.mapView?.let { mapView ->
+                                            state.effectiveLocation?.let { source ->
+                                                state.destinationLocation?.let { dest ->
+                                                    // Get real-time route updates
+                                                    val updatedRoute = fetchRealRoutePoints(source, dest)
+                                                    state.routePoints = updatedRoute
+
+                                                    // Calculate progress
+                                                    val totalDistance = calculateAccurateDistance(updatedRoute)
+                                                    val remainingDistance = calculateDistance(source, dest)
+                                                    val progress = 1 - (remainingDistance / totalDistance)
+                                                    
+                                                    // Update time estimate based on current progress
+                                                    state.estimatedTimeMinutes = calculateAccurateTime(remainingDistance)
+
+                                                    // Update map view with new route
+                                                    updateMapView(mapView, source, dest, updatedRoute)
+
+                                                    // Check for nearby stops
+                                                    val nearbyStop = stopsAlongRoute.firstOrNull { stop ->
+                                                        val stopPoint = GeoPoint(stop.stop_lat, stop.stop_lon)
+                                                        calculateDistance(source, stopPoint) < 100 // Within 100 meters
+                                                    }
+
+                                                    // Update navigation state
+                                                    nearbyStop?.let { stop ->
+                                                        val distanceToStop = calculateDistance(source, GeoPoint(stop.stop_lat, stop.stop_lon))
+                                                        
+                                                        when {
+                                                            distanceToStop < 50 -> {
+                                                                // Vibrate and show arrival alert
+                                                                if (!hasVibrated) {
+                                                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                                                        vibrator.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
+                                                                    } else {
+                                                                        @Suppress("DEPRECATION")
+                                                                        vibrator.vibrate(500)
+                                                                    }
+                                                                    hasVibrated = true
+                                                                }
+                                                                showAlert = true
+                                                                alertType = AlertType.ARRIVAL
+                                                                alertMessage = "Arriving at ${stop.stop_name}"
+                                                                navigationInstructions = "You have arrived at ${stop.stop_name}"
+                                                                
+                                                                // Move to next stop
+                                                                currentStopIndex++
+                                                                nextStop = stopsAlongRoute.getOrNull(currentStopIndex)
+                                                            }
+                                                            distanceToStop < 200 -> {
+                                                                showAlert = true
+                                                                alertType = AlertType.WARNING
+                                                                alertMessage = "Approaching ${stop.stop_name}"
+                                                                navigationInstructions = "Get ready to stop at ${stop.stop_name}"
+                                                                hasVibrated = false
+                                                            }
+                                                            else -> {
+                                                                showAlert = false
+                                                                hasVibrated = false
+                                                                nextStop?.let {
+                                                                    navigationInstructions = "Continue to ${it.stop_name}"
+                                                                }
+                                                            }
+                                                        }
+                                                        
+                                                        // Update next stop distance for the indicator
+                                                        nextStopDistance = distanceToStop
+                                                    }
+
+                                                    // Check if reached final destination
+                                                    if (remainingDistance < 50) {
+                                                        showAlert = true
+                                                        alertType = AlertType.ARRIVAL
+                                                        alertMessage = "You have reached your destination"
+                                                        navigationInstructions = "You have arrived at your destination"
+                                                        state.navigationStarted = false
+                                                    }
+
+                                                    // Update bearing for direction indicator
+                                                    currentBearing = source.bearingTo(dest).toFloat()
+                                                }
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("TripDetailsScreen", "Error updating navigation: ${e.message}", e)
                                     }
-                                    mapUpdateJob?.cancel()
+                                    delay(1000) // Update every second
                                 }
                             }
+                        } else {
+                            // Reset navigation state
+                            showAlert = false
+                            hasVibrated = false
+                            navigationInstructions = ""
                         }
-                        delay(100) // Short delay to prevent CPU hogging
-                    } catch (e: Exception) {
-                        Log.e("TripDetailsScreen", "Error updating navigation: ${e.message}", e)
-                    }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (state.navigationStarted) Color(0xFFDC3545) else Color(0xFF007AFF)
+                    )
+                ) {
+                    Text(
+                        text = if (state.navigationStarted) "End Navigation" else "Start Navigation",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
                 }
             }
         }
+
+        // Visual Alert
+        VisualAlert(
+            message = alertMessage,
+            type = alertType,
+            isVisible = showAlert
+        )
+
+        // Direction Indicator
+        DirectionIndicator(
+            bearing = currentBearing,
+            nextStopDistance = nextStopDistance,
+            nextStopName = nextStop?.stop_name
+        )
+
+        // Route Overview
+        RouteOverview(
+            currentStop = currentStopIndex,
+            totalStops = stopsAlongRoute.size,
+            estimatedTime = state.estimatedTimeMinutes
+        )
     }
-    
-    // Simulate vehicle movement for real-time tracking
-    LaunchedEffect(showVehicleTracking.value) {
-        if (showVehicleTracking.value) {
-            vehicleUpdateJob?.cancel()
-            vehicleUpdateJob = coroutineScope.launch(Dispatchers.IO) {
-                while (isActive) {
-                    try {
-                        // Simulate fetching vehicle positions from API
-                        val vehicles = simulateVehiclePositions(effectiveLocation, destinationLocation, routePoints)
-                        
-                        withContext(Dispatchers.Main) {
-                            // Update vehicle positions
-                            vehiclePositions.value = vehicles
-                            
-                            // Update map with vehicle positions
-                            mapView?.let { map ->
-                                updateMapWithVehicles(map, vehicles, selectedVehicle.value)
-                            }
-                        }
-                        
-                        delay(5000) // Update every 5 seconds
-                    } catch (e: Exception) {
-                        Log.e("TripDetailsScreen", "Error updating vehicles: ${e.message}", e)
-                    }
-                }
-            }
-        } else {
-            vehicleUpdateJob?.cancel()
-        }
-    }
-    
-    // Clean up resources when leaving the screen
-    DisposableEffect(Unit) {
-        onDispose {
-            mapUpdateJob?.cancel()
-            vehicleUpdateJob?.cancel()
-            mapView?.onDetach()
-        }
-    }
-    
-    // Handle back button press
+
+    // Back handler
     BackHandler {
-        if (navigationStarted) {
-            // Show confirmation dialog
-            navigationStarted = false
-            mapUpdateJob?.cancel()
-            vehicleUpdateJob?.cancel()
+        if (state.navigationStarted) {
+            state.navigationStarted = false
+            state.mapUpdateJob?.cancel()
         }
         navController.popBackStack()
+    }
+
+    // Cleanup
+    DisposableEffect(Unit) {
+        onDispose {
+            state.mapUpdateJob?.cancel()
+            state.mapView?.onDetach()
+        }
     }
 }
 
 // Function to update map with current location
-private fun updateMapWithCurrentLocation(mapView: MapView?, currentLocation: GeoPoint, destLocation: GeoPoint) {
+fun updateMapWithCurrentLocation(mapView: MapView?, currentLocation: GeoPoint, destLocation: GeoPoint) {
     mapView?.let { map ->
         try {
             // Clear existing overlays
             map.overlays.clear()
-            
+
             // Add current location marker
-            val startMarker = Marker(map)
-            startMarker.position = currentLocation
-            startMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            startMarker.icon = ResourcesCompat.getDrawable(map.resources, R.drawable.ic_source_marker, null)
+            val startMarker = Marker(map).apply {
+                position = currentLocation
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                icon = ResourcesCompat.getDrawable(map.resources, R.drawable.ic_source_marker, null)
+            }
             map.overlays.add(startMarker)
-            
+
             // Add destination marker
-            val endMarker = Marker(map)
-            endMarker.position = destLocation
-            endMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            endMarker.icon = ResourcesCompat.getDrawable(map.resources, R.drawable.ic_destination_marker, null)
+            val endMarker = Marker(map).apply {
+                position = destLocation
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                icon = ResourcesCompat.getDrawable(map.resources, R.drawable.ic_destination_marker, null)
+            }
             map.overlays.add(endMarker)
-            
+
             // Force redraw
             map.invalidate()
+
+            // Log the locations for debugging
+            Log.d("TripDetailsScreen", "Map updated with current location: $currentLocation, destination: $destLocation")
         } catch (e: Exception) {
             Log.e("TripDetailsScreen", "Error updating map: ${e.message}", e)
         }
@@ -906,7 +1130,7 @@ private fun updateMapWithCurrentLocation(mapView: MapView?, currentLocation: Geo
 }
 
 // Function to update map with route
-private fun updateMapWithRoute(mapView: MapView?, currentLocation: GeoPoint, destLocation: GeoPoint, routePoints: List<GeoPoint>) {
+fun updateMapWithRoute(mapView: MapView?, currentLocation: GeoPoint, destLocation: GeoPoint, routePoints: List<GeoPoint>) {
     mapView?.let { map ->
         try {
             Log.d("TripDetailsScreen", "Updating map with route: ${routePoints.size} points")
@@ -955,16 +1179,16 @@ private fun updateMapWithRoute(mapView: MapView?, currentLocation: GeoPoint, des
 
 // Function to fetch real road route from OpenStreetMap Routing Service
 // Optimized with timeout handling and caching
-private val routeCache = LruCache<String, List<GeoPoint>>(20) // Cache up to 20 routes
+val routeCache = LruCache<String, List<GeoPoint>>(20) // Cache up to 20 routes
 
-private suspend fun fetchRealRoutePoints(source: GeoPoint, destLocation: GeoPoint): List<GeoPoint> {
+
+suspend fun fetchRealRoutePoints(source: GeoPoint, destLocation: GeoPoint): List<GeoPoint> {
     return withContext(Dispatchers.IO) {
         try {
             // Skip if source or destination is (0,0) - this indicates invalid coordinates
             if ((source.latitude == 0.0 && source.longitude == 0.0) || 
                 (destLocation.latitude == 0.0 && destLocation.longitude == 0.0)) {
                 Log.w("TripDetailsScreen", "Invalid coordinates detected: source=$source, dest=$destLocation")
-                // Return a minimal route to avoid errors
                 return@withContext listOf(source, destLocation)
             }
             
@@ -976,8 +1200,8 @@ private suspend fun fetchRealRoutePoints(source: GeoPoint, destLocation: GeoPoin
                 return@withContext cachedRoute
             }
             
-            // Construct the URL for the routing service
-            val url = URL("https://router.project-osrm.org/route/v1/driving/${source.longitude},${source.latitude};${destLocation.longitude},${destLocation.latitude}?overview=full&geometries=polyline")
+            // Use OSRM driving profile to ensure routes follow roads
+            val url = URL("https://router.project-osrm.org/route/v1/driving/${source.longitude},${source.latitude};${destLocation.longitude},${destLocation.latitude}?overview=full&geometries=polyline&alternatives=false&steps=true")
             
             // Set up connection with timeout
             val connection = url.openConnection() as HttpURLConnection
@@ -1002,21 +1226,21 @@ private suspend fun fetchRealRoutePoints(source: GeoPoint, destLocation: GeoPoin
                 val geometry = route.getString("geometry")
                 
                 // Decode the polyline
-                val points = decodePolyline(geometry)
+                val points = decodePolyline(geometry).map { GeoPoint(it.first, it.second) }
                 Log.d("TripDetailsScreen", "Decoded ${points.size} points from polyline")
                 
-                // Cache the result
-                routeCache.put(cacheKey, points)
-                
-                // Ensure we have at least source and destination if the route is empty
-                if (points.isEmpty()) {
-                    Log.w("TripDetailsScreen", "Decoded polyline is empty, using straight line")
-                    return@withContext listOf(source, destLocation)
+                // Ensure we have enough points for a smooth route
+                val smoothedPoints = if (points.size < 10) {
+                    interpolatePoints(points)
+                } else {
+                    points
                 }
                 
-                return@withContext points
+                // Cache the result
+                routeCache.put(cacheKey, smoothedPoints)
+                
+                return@withContext smoothedPoints
             } else {
-                // If no route found, return a straight line
                 Log.w("TripDetailsScreen", "No route found, using straight line")
                 val straightLine = listOf(source, destLocation)
                 routeCache.put(cacheKey, straightLine)
@@ -1024,231 +1248,291 @@ private suspend fun fetchRealRoutePoints(source: GeoPoint, destLocation: GeoPoin
             }
         } catch (e: Exception) {
             Log.e("TripDetailsScreen", "Error fetching route: ${e.message}", e)
-            // Return a straight line in case of error
             return@withContext listOf(source, destLocation)
         }
     }
 }
 
-// Helper function to decode polyline
-private fun decodePolyline(encoded: String): List<GeoPoint> {
-    val poly = ArrayList<GeoPoint>()
-    var index = 0
-    val len = encoded.length
-    var lat = 0
-    var lng = 0
+// Add helper function to interpolate points for smoother routes
+private fun interpolatePoints(points: List<GeoPoint>): List<GeoPoint> {
+    if (points.size < 2) return points
     
-    while (index < len) {
-        var b: Int
-        var shift = 0
-        var result = 0
-        do {
-            b = encoded[index++].toInt() - 63
-            result = result or (b and 0x1f shl shift)
-            shift += 5
-        } while (b >= 0x20)
-        val dlat = if (result and 1 != 0) (result shr 1).inv() else result shr 1
-        lat += dlat
+    val result = mutableListOf<GeoPoint>()
+    for (i in 0 until points.size - 1) {
+        val start = points[i]
+        val end = points[i + 1]
         
-        shift = 0
-        result = 0
-        do {
-            b = encoded[index++].toInt() - 63
-            result = result or (b and 0x1f shl shift)
-            shift += 5
-        } while (b >= 0x20)
-        val dlng = if (result and 1 != 0) (result shr 1).inv() else result shr 1
-        lng += dlng
+        // Add the start point
+        result.add(start)
         
-        val p = GeoPoint(lat.toDouble() / 1E5, lng.toDouble() / 1E5)
-        poly.add(p)
+        // Add 3 interpolated points between each pair
+        for (j in 1..3) {
+            val ratio = j.toDouble() / 4
+            val lat = start.latitude + (end.latitude - start.latitude) * ratio
+            val lon = start.longitude + (end.longitude - start.longitude) * ratio
+            result.add(GeoPoint(lat, lon))
+        }
     }
     
-    return poly
+    // Add the final point
+    result.add(points.last())
+    return result
 }
 
-// Function to calculate distance between two points
-private fun calculateDistance(start: GeoPoint, end: GeoPoint): Float {
-    val results = FloatArray(1)
-    android.location.Location.distanceBetween(
-        start.latitude, start.longitude,
-        end.latitude, end.longitude,
-        results
-    )
-    // Convert to kilometers
-    return results[0] / 1000f
+private fun calculateInitialTripDetails(source: GeoPoint, destination: GeoPoint): Pair<Double, Int> {
+    val distance = calculateDistance(source, destination)
+    val estimatedTime = calculateEstimatedTime(distance)
+    return Pair(distance, estimatedTime)
 }
 
-// Function to calculate estimated time based on distance
-private fun calculateEstimatedTime(distance: Float): Int {
-    // Assume average speed of 30 km/h
-    return (distance * 60 / 30).toInt()
-}
-
-// Function to get next direction based on current step
-private fun getNextDirection(current: GeoPoint, destLocation: GeoPoint, step: Int): String {
-    // Simple direction logic based on step
-    return when (step) {
-        0 -> "Start journey"
-        1 -> "Continue straight"
-        2 -> "Follow the route"
-        3 -> "Stay on course"
-        4 -> "Approaching destination"
-        else -> "Continue to destination"
-    }
-}
-
-// Function to update map with vehicle positions
-private fun updateMapWithVehicles(mapView: MapView, vehicles: Map<String, GeoPoint>, selectedVehicle: String?) {
+private suspend fun fetchRouteFromGTFS(
+    source: GeoPoint,
+    destination: GeoPoint,
+    gtfsViewModel: GTFSViewModel
+): List<GeoPoint> = withContext(Dispatchers.IO) {
     try {
-        // Add vehicle markers
-        vehicles.forEach { (id, position) ->
-            val vehicleMarker = Marker(mapView)
-            vehicleMarker.position = position
-            vehicleMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-            
-            // Highlight selected vehicle
-            if (id == selectedVehicle) {
-                vehicleMarker.icon = ResourcesCompat.getDrawable(mapView.resources, R.drawable.ic_notification, null)
-                vehicleMarker.setInfoWindow(null) // Custom info window
-            } else {
-                vehicleMarker.icon = ResourcesCompat.getDrawable(mapView.resources, R.drawable.ic_notification, null)
+        // Get the route using OSRM first
+        val routePoints = fetchRealRoutePoints(source, destination)
+        
+        // Get stops near the route
+        val stops = mutableListOf<GeoPoint>()
+        gtfsViewModel.searchStops(source.toStopString()).collect { sourceStops ->
+            if (sourceStops.isNotEmpty()) {
+                stops.add(GeoPoint(sourceStops[0].stop_lat, sourceStops[0].stop_lon))
             }
-            
-            mapView.overlays.add(vehicleMarker)
         }
         
-        // Force redraw
-        mapView.invalidate()
+        gtfsViewModel.searchStops(destination.toStopString()).collect { destStops ->
+            if (destStops.isNotEmpty()) {
+                stops.add(GeoPoint(destStops[0].stop_lat, destStops[0].stop_lon))
+            }
+        }
+        
+        // If we found GTFS stops, include them in the route
+        return@withContext if (stops.isNotEmpty()) {
+            // Insert stops into the route at appropriate points
+            insertStopsIntoRoute(routePoints, stops)
+        } else {
+            routePoints
+        }
     } catch (e: Exception) {
-        Log.e("TripDetailsScreen", "Error updating vehicles: ${e.message}", e)
+        Log.e("TripDetailsScreen", "Error fetching GTFS route: ${e.message}")
+        // Fallback to OpenStreetMap routing service
+        fetchRealRoutePoints(source, destination)
     }
 }
 
-// Function to simulate vehicle positions for testing
-private fun simulateVehiclePositions(current: GeoPoint, destLocation: GeoPoint, routePoints: List<GeoPoint>): Map<String, GeoPoint> {
-    val vehicles = mutableMapOf<String, GeoPoint>()
-    val random = Random()
+private fun GeoPoint.toStopString(): String {
+    return String.format("%.5f,%.5f", latitude, longitude)
+}
+
+private fun insertStopsIntoRoute(route: List<GeoPoint>, stops: List<GeoPoint>): List<GeoPoint> {
+    val result = mutableListOf<GeoPoint>()
+    if (route.isEmpty()) return stops
     
-    // Use route points if available
-    if (routePoints.size > 5) {
-        // Add 1-3 vehicles along the route
-        val vehicleCount = random.nextInt(3) + 1
-        for (i in 0 until vehicleCount) {
-            val pointIndex = random.nextInt(routePoints.size)
-            val vehiclePoint = routePoints[pointIndex]
-            
-            // Add small random offset to make it look more realistic
-            val latOffset = (random.nextDouble() - 0.5) * 0.001
-            val lonOffset = (random.nextDouble() - 0.5) * 0.001
-            val adjustedPoint = GeoPoint(
-                vehiclePoint.latitude + latOffset,
-                vehiclePoint.longitude + lonOffset
+    result.add(route.first())
+    
+    // For each segment of the route
+    for (i in 0 until route.size - 1) {
+        val start = route[i]
+        val end = route[i + 1]
+        
+        // Find stops that belong in this segment
+        val segmentStops = stops.filter { stop ->
+            isPointNearLineSegment(stop, start, end)
+        }.sortedBy { stop ->
+            // Sort by distance along the route
+            distanceAlongRoute(stop, start, end)
+        }
+        
+        // Add the stops
+        result.addAll(segmentStops)
+        result.add(end)
+    }
+    
+    return result
+}
+
+fun isPointNearLineSegment(point: GeoPoint, start: GeoPoint, end: GeoPoint): Boolean {
+    val tolerance = 0.001 // About 100 meters
+    
+    val dx = end.longitude - start.longitude
+    val dy = end.latitude - start.latitude
+    
+    val lengthSquared = dx * dx + dy * dy
+    
+    if (lengthSquared == 0.0) return point.distanceToAsDouble(start) <= tolerance
+    
+    val t = ((point.longitude - start.longitude) * dx + (point.latitude - start.latitude) * dy) / lengthSquared
+    
+    if (t < 0.0) return point.distanceToAsDouble(start) <= tolerance
+    if (t > 1.0) return point.distanceToAsDouble(end) <= tolerance
+    
+    val projection = GeoPoint(
+        start.latitude + t * dy,
+        start.longitude + t * dx
+    )
+    
+    return point.distanceToAsDouble(projection) <= tolerance
+}
+
+private fun distanceAlongRoute(point: GeoPoint, start: GeoPoint, end: GeoPoint): Double {
+    val dx = end.longitude - start.longitude
+    val dy = end.latitude - start.latitude
+    
+    val lengthSquared = dx * dx + dy * dy
+    
+    if (lengthSquared == 0.0) return 0.0
+    
+    val t = ((point.longitude - start.longitude) * dx + (point.latitude - start.latitude) * dy) / lengthSquared
+    
+    return t * Math.sqrt(lengthSquared)
+}
+
+private fun calculateAccurateDistance(points: List<GeoPoint>): Double {
+    var totalDistance = 0.0
+    for (i in 0 until points.size - 1) {
+        totalDistance += points[i].distanceToAsDouble(points[i + 1])
+    }
+    return totalDistance
+}
+
+private fun calculateAccurateTime(distance: Double): Int {
+    // Average bus speed in urban areas (25 km/h)
+    val averageSpeedKmh = 25.0
+    // Convert distance from meters to kilometers
+    val distanceKm = distance / 1000.0
+    // Calculate time in minutes
+    return (distanceKm / averageSpeedKmh * 60).toInt()
+}
+
+// Add this enum class
+enum class AlertType {
+    INFO, WARNING, ARRIVAL
+}
+
+// Add this composable for visual alerts
+@Composable
+fun VisualAlert(
+    message: String,
+    type: AlertType,
+    isVisible: Boolean
+) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+
+    if (isVisible) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .background(
+                    when (type) {
+                        AlertType.INFO -> Color(0xFF007AFF)
+                        AlertType.WARNING -> Color(0xFFFFC107)
+                        AlertType.ARRIVAL -> Color(0xFF4CAF50)
+                    }
+                )
+                .alpha(alpha)
+        ) {
+            Text(
+                text = message,
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
             )
-            
-            vehicles["Vehicle-${i + 1}"] = adjustedPoint
-        }
-    } else {
-        // If no route points, add random vehicles between current and destination
-        val vehicleCount = random.nextInt(2) + 1
-        for (i in 0 until vehicleCount) {
-            // Interpolate between current and destination
-            val progress = random.nextDouble()
-            val lat = current.latitude + (destLocation.latitude - current.latitude) * progress
-            val lon = current.longitude + (destLocation.longitude - current.longitude) * progress
-            
-            // Add small random offset
-            val latOffset = (random.nextDouble() - 0.5) * 0.002
-            val lonOffset = (random.nextDouble() - 0.5) * 0.002
-            
-            vehicles["Vehicle-${i + 1}"] = GeoPoint(lat + latOffset, lon + lonOffset)
         }
     }
-    
-    return vehicles
 }
 
-// Helper function to generate sample stops
-private fun generateSampleStops(source: String, destination: String): List<String> {
-    // Generate some sample stops based on source and destination
-    val stops = mutableListOf<String>()
-    
-    // Add some generic stops
-    stops.add("$source Station")
-    stops.add("Central Transfer")
-    stops.add("Main Street")
-    stops.add("Downtown")
-    stops.add("$destination Terminal")
-    
-    return stops
-}
-
-// Function to generate route points between two locations
-private fun generateRoutePoints(start: GeoPoint, end: GeoPoint, numPoints: Int): List<GeoPoint> {
-    val points = mutableListOf<GeoPoint>()
-    points.add(start)
-    
-    // Generate intermediate points with some randomness to make it look like a realistic route
-    if (numPoints > 2) {
-        val latDiff = end.latitude - start.latitude
-        val lonDiff = end.longitude - start.longitude
-        val random = Random()
-        
-        for (i in 1 until numPoints - 1) {
-            val progress = i.toDouble() / (numPoints - 1)
-            
-            // Add some randomness to make the route look more realistic
-            val randomFactor = 0.0002 * (random.nextDouble() - 0.5)
-            val randomFactorLon = 0.0002 * (random.nextDouble() - 0.5)
-            
-            val lat = start.latitude + latDiff * progress + randomFactor
-            val lon = start.longitude + lonDiff * progress + randomFactorLon
-            
-            points.add(GeoPoint(lat, lon))
+// Add this composable for the compass/direction indicator
+@Composable
+fun DirectionIndicator(
+    bearing: Float,
+    nextStopDistance: Double,
+    nextStopName: String?
+) {
+    nextStopName?.let {
+        Card(
+            modifier = Modifier
+                .padding(8.dp),
+            shape = RoundedCornerShape(8.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = "Next Stop: $it",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1
+                )
+                Text(
+                    text = "${String.format("%.1f", nextStopDistance)}m away",
+                    fontSize = 10.sp,
+                    color = Color.Gray,
+                    maxLines = 1
+                )
+            }
         }
     }
-    
-    points.add(end)
-    return points
 }
 
-// Function to update the map route
-private fun updateMapRoute(mapView: MapView, sourceLocation: GeoPoint, destLocation: GeoPoint, routePoints: List<GeoPoint>) {
-    try {
-        // Clear existing overlays
-        mapView.overlays.clear()
-        
-        // Add route polyline
-        val routeLine = Polyline(mapView).apply {
-            outlinePaint.color = AndroidColor.parseColor("#007AFF")
-            outlinePaint.strokeWidth = 14f
-            outlinePaint.strokeCap = Paint.Cap.ROUND
-            outlinePaint.strokeJoin = Paint.Join.ROUND
-            outlinePaint.isAntiAlias = true
-            setPoints(routePoints)
+// Add this composable for the route overview
+@Composable
+fun RouteOverview(
+    currentStop: Int,
+    totalStops: Int,
+    estimatedTime: Int
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Progress indicator
+            LinearProgressIndicator(
+                progress = currentStop.toFloat() / totalStops,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp),
+                color = Color(0xFF007AFF)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Stop ${currentStop + 1} of $totalStops",
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "$estimatedTime min remaining",
+                    fontSize = 14.sp
+                )
+            }
         }
-        mapView.overlays.add(routeLine)
-        
-        // Add markers
-        val sourceMarker = Marker(mapView).apply {
-            position = sourceLocation
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_notification)
-            infoWindow = null
-        }
-        mapView.overlays.add(sourceMarker)
-        
-        val destMarker = Marker(mapView).apply {
-            position = destLocation
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_notification)
-            infoWindow = null
-        }
-        mapView.overlays.add(destMarker)
-        
-        // Force redraw
-        mapView.invalidate()
-    } catch (e: Exception) {
-        Log.e("TripDetailsScreen", "Error updating map route: ${e.message}", e)
     }
 }

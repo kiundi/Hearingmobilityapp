@@ -13,6 +13,9 @@ class SharedViewModel : ViewModel() {
     private val _message = MutableLiveData<String>()
     val message: LiveData<String> = _message
     
+    private val _tripInfo = MutableStateFlow("")
+    val tripInfo: StateFlow<String> = _tripInfo
+    
     fun updateMessage(newMessage: String) {
         _message.value = newMessage
     }
@@ -25,5 +28,9 @@ class SharedViewModel : ViewModel() {
 
     fun clearMessages() {
         _chatMessages.value = emptyList()
+    }
+
+    fun updateTripInfo(info: String) {
+        _tripInfo.value = info
     }
 }
