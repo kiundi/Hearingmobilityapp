@@ -7,12 +7,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    parentNavController: NavHostController // Add this parameter to receive the main NavController
+) {
     // Create a dedicated NavController for bottom navigation.
     val bottomNavController = rememberNavController()
 
@@ -26,6 +29,7 @@ fun MainScreen() {
     // Create shared ViewModels at the top level to share across screens
     val sharedViewModel: SharedViewModel = viewModel()
     val communicationViewModel: CommunicationViewModel = viewModel()
+    val userViewModel: UserViewModel = viewModel()
     
     // Get application context for GTFSViewModel
     val appContext = LocalContext.current.applicationContext as Application
@@ -46,13 +50,21 @@ fun MainScreen() {
                     sharedViewModel = sharedViewModel
                 )
             }
-
-            composable(Screen.Communication.route) { 
-                CommunicationPage(viewModel = communicationViewModel) 
+            
+            // Add composables for other bottom nav destinations
+            composable(Screen.Communication.route) {
+                CommunicationPage(
+                    viewModel = communicationViewModel
+                )
             }
             
+            // Use the parentNavController for the AccountScreen so it can navigate to routes
+            // defined in the main NavHost
             composable(Screen.Account.route) {
-                AccountScreen(navController = rememberNavController())
+                AccountScreen(
+                    navController = parentNavController,
+                    userViewModel = userViewModel
+                )
             }
             
             // Add chatbot screen

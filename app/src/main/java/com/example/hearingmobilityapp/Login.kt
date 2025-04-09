@@ -111,7 +111,7 @@ fun LoginScreen(
                             is AuthResult.Success -> {
                                 Log.d("Login", "Successfully logged in")
                                 navController.navigate("main") {
-                                    popUpTo("login") { inclusive = true }
+                                    popUpTo(0) { inclusive = true }
                                 }
                             }
                             is AuthResult.Error -> {
@@ -149,7 +149,7 @@ fun LoginScreen(
                         is AuthResult.Success -> {
                             Log.d("Login", "Successfully logged in anonymously")
                             navController.navigate("main") {
-                                popUpTo("login") { inclusive = true }
+                                popUpTo(0) { inclusive = true }
                             }
                         }
                         is AuthResult.Error -> {

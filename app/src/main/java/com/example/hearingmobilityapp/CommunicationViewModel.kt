@@ -149,6 +149,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
             voiceRecognitionManager.transcribedText.collect { transcribedText ->
                 if (transcribedText.isNotEmpty()) {
                     _message.value = transcribedText
+                    Log.d(TAG, "Updated message with transcribed text: '$transcribedText'")
                 }
             }
         }
@@ -225,16 +226,13 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
             Log.d(TAG, "stopListening called")
             voiceRecognitionManager.stopRecording()
 
-            // Wait briefly for final transcription
-            delay(500)
-
+            // Get current transcribed text and update message if not empty
             val transcribedText = voiceRecognitionManager.transcribedText.value
-            Log.d(TAG, "Retrieved transcribed text: '$transcribedText'")
-
             if (transcribedText.isNotEmpty()) {
                 // Treat transcribed text as a new message
                 updateMessage(transcribedText)
-                Log.d(TAG, "Updated message with transcribed text")
+                // No longer save transcribed message to database
+                Log.d(TAG, "Updated message with transcribed text: '$transcribedText'")
             } else {
                 Log.e(TAG, "No transcribed text available")
             }
@@ -254,22 +252,9 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         firestore.collection("users").document(getCurrentUserId() ?: "").collection("favoriteMessages")
 
     fun saveMessage(message: String) {
-        if (!_isUserAuthenticated.value) {
-            checkAuthState() // Try to authenticate if not already
-            return
-        }
-        
-        getCurrentUserId()?.let { userId ->
-            viewModelScope.launch {
-                try {
-                    getSavedMessagesCollection().add(hashMapOf("text" to message, "isFavorite" to false)).await()
-                    // fetchSavedMessages() // Listener should handle updates
-                } catch (e: Exception) {
-                    // Handle error
-                    println("Error saving message: ${e.message}")
-                }
-            }
-        }
+        // Simply update the message state without saving to Firebase
+        // Messages will only be saved when added to favorites
+        updateMessage(message)
     }
     
     fun addToFavorites(message: String) {

@@ -12,11 +12,11 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 
 @Composable
@@ -33,17 +34,39 @@ fun SplashScreen(
     userViewModel: UserViewModel = viewModel()
 ) {
     val currentUser = userViewModel.currentUser.collectAsState().value
-    val lifecycleOwner = LocalLifecycleOwner.current
-
+    val authInitialized = remember { mutableStateOf(false) }
+    
+    // Launch a separate effect to check if user is signed in and initialize auth
     LaunchedEffect(Unit) {
-        delay(2000) // Display for 2 seconds
-        if (currentUser != null) {
-            navController.navigate("main") {
-                popUpTo("splash") { inclusive = true }
-            }
-        } else {
-            navController.navigate("signup") {
-                popUpTo("splash") { inclusive = true }
+        // Force Firebase Auth to initialize and check authentication state
+        userViewModel.checkAuthState()
+        
+        // Wait a moment to ensure Firebase Auth has time to fully initialize
+        delay(1000)
+        authInitialized.value = true
+    }
+    
+    // Only navigate after auth is initialized and splash screen delay has passed
+    LaunchedEffect(authInitialized.value, currentUser) {
+        if (authInitialized.value) {
+            delay(1000) // Additional delay to show the splash screen (2 seconds total)
+            
+            if (currentUser != null) {
+                // User is logged in, go to main screen
+                navController.navigate("main") {
+                    popUpTo(0) { inclusive = true }
+                }
+            } else if (FirebaseAuth.getInstance().currentUser != null) {
+                // FirebaseAuth says user is logged in but ViewModel hasn't loaded yet
+                // This acts as a fallback
+                navController.navigate("main") {
+                    popUpTo(0) { inclusive = true }
+                }
+            } else {
+                // No user logged in, go to signup screen
+                navController.navigate("signup") {
+                    popUpTo(0) { inclusive = true }
+                }
             }
         }
     }

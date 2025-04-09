@@ -13,11 +13,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
+data class EmergencyContact(
+    val name: String,
+    val phoneNumber: String,
+    val isPrimary: Boolean
+)
+
 data class UserData(
     val uid: String,
     val name: String,
     val email: String,
-    val provider: String = "emailPassword"
+    val provider: String = "emailPassword",
+    val emergencyContacts: List<EmergencyContact> = emptyList()
 )
 
 sealed class AuthResult {
@@ -26,7 +33,10 @@ sealed class AuthResult {
 }
 
 class UserViewModel : ViewModel() {
+    // Firebase Auth should automatically persist the user session
+    // No need for explicit persistence calls as it's the default behavior
     private val auth = FirebaseAuth.getInstance()
+    
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance().apply {
         // Enable offline persistence
         val settings = FirebaseFirestoreSettings.Builder()
@@ -40,24 +50,60 @@ class UserViewModel : ViewModel() {
     val currentUser: StateFlow<UserData?> = _currentUser
 
     init {
-        // Initialize current user state
-        auth.currentUser?.let { firebaseUser ->
+        // Check if there's a currently authenticated user
+        checkForExistingUser()
+    }
+    
+    // Public method to explicitly check authentication state
+    fun checkAuthState() {
+        checkForExistingUser()
+    }
+    
+    private fun checkForExistingUser() {
+        // Get the current Firebase user, which should be cached between app sessions
+        val firebaseUser = auth.currentUser
+        if (firebaseUser != null) {
+            Log.d("UserViewModel", "Found existing signed-in user: ${firebaseUser.email}")
             viewModelScope.launch {
                 loadUserData(firebaseUser)
             }
+        } else {
+            Log.d("UserViewModel", "No user signed in")
+            _currentUser.value = null
         }
     }
-
+    
     private suspend fun loadUserData(firebaseUser: FirebaseUser) {
         try {
             val userDoc = db.collection("users").document(firebaseUser.uid).get().await()
             if (userDoc.exists()) {
+                // Extract emergency contacts if they exist
+                val emergencyContactsList = mutableListOf<EmergencyContact>()
+                val contactsData = userDoc.get("emergencyContacts") as? List<Map<String, Any>>
+                
+                contactsData?.forEach { contactMap ->
+                    val name = contactMap["name"] as? String ?: ""
+                    val phoneNumber = contactMap["phoneNumber"] as? String ?: ""
+                    val isPrimary = contactMap["isPrimary"] as? Boolean ?: false
+                    
+                    emergencyContactsList.add(
+                        EmergencyContact(
+                            name = name,
+                            phoneNumber = phoneNumber,
+                            isPrimary = isPrimary
+                        )
+                    )
+                }
+                
                 _currentUser.value = UserData(
                     uid = firebaseUser.uid,
                     name = userDoc.getString("name") ?: "",
                     email = userDoc.getString("email") ?: "",
-                    provider = userDoc.getString("provider") ?: "emailPassword"
+                    provider = userDoc.getString("provider") ?: "emailPassword",
+                    emergencyContacts = emergencyContactsList
                 )
+                
+                Log.d("UserViewModel", "Loaded ${emergencyContactsList.size} emergency contacts for user")
             } else {
                 // Create a basic user profile if document doesn't exist
                 val basicUserData = UserData(
@@ -76,7 +122,7 @@ class UserViewModel : ViewModel() {
                 }
             }
         } catch (e: Exception) {
-            Log.e("UserViewModel", "Error loading user data (Ask Gemini)", e)
+            Log.e("UserViewModel", "Error loading user data: ${e.message}", e)
             
             // Even if we can't load from Firestore, create a basic user from auth
             auth.currentUser?.let { user ->
@@ -119,7 +165,11 @@ class UserViewModel : ViewModel() {
                     db.collection("users").document(firebaseUser.uid)
                         .set(userData).await()
                     
+                    // Ensure we store the current user
                     _currentUser.value = userData
+                    
+                    // Log successful sign-up for debugging
+                    Log.d("UserViewModel", "Successfully signed up and persisted user ${firebaseUser.email}")
                 }
                 AuthResult.Success
             } catch (e: FirebaseAuthUserCollisionException) {
@@ -144,6 +194,8 @@ class UserViewModel : ViewModel() {
             val result = auth.signInWithEmailAndPassword(email, password).await()
             result.user?.let { firebaseUser ->
                 loadUserData(firebaseUser)
+                // Log successful sign-in for debugging
+                Log.d("UserViewModel", "Successfully signed in and persisted user ${firebaseUser.email}")
             }
             AuthResult.Success
         } catch (e: Exception) {
@@ -186,5 +238,62 @@ class UserViewModel : ViewModel() {
 
     fun isUserSignedIn(): Boolean {
         return auth.currentUser != null
+    }
+
+    suspend fun updateEmergencyContacts(contacts: List<EmergencyContact>) {
+        try {
+            val currentUser = auth.currentUser ?: return
+            val userData = _currentUser.value ?: return
+            
+            val updatedUserData = userData.copy(emergencyContacts = contacts)
+            db.collection("users").document(currentUser.uid)
+                .set(updatedUserData)
+                .await()
+            
+            _currentUser.value = updatedUserData
+        } catch (e: Exception) {
+            Log.e("UserViewModel", "Error updating emergency contacts", e)
+            throw e
+        }
+    }
+
+    suspend fun addEmergencyContact(contact: EmergencyContact) {
+        try {
+            val currentUser = auth.currentUser ?: return
+            val userData = _currentUser.value ?: return
+            
+            val updatedContacts = userData.emergencyContacts.toMutableList()
+            updatedContacts.add(contact)
+            
+            val updatedUserData = userData.copy(emergencyContacts = updatedContacts)
+            db.collection("users").document(currentUser.uid)
+                .set(updatedUserData)
+                .await()
+            
+            _currentUser.value = updatedUserData
+        } catch (e: Exception) {
+            Log.e("UserViewModel", "Error adding emergency contact", e)
+            throw e
+        }
+    }
+
+    suspend fun removeEmergencyContact(contact: EmergencyContact) {
+        try {
+            val currentUser = auth.currentUser ?: return
+            val userData = _currentUser.value ?: return
+            
+            val updatedContacts = userData.emergencyContacts.toMutableList()
+            updatedContacts.remove(contact)
+            
+            val updatedUserData = userData.copy(emergencyContacts = updatedContacts)
+            db.collection("users").document(currentUser.uid)
+                .set(updatedUserData)
+                .await()
+            
+            _currentUser.value = updatedUserData
+        } catch (e: Exception) {
+            Log.e("UserViewModel", "Error removing emergency contact", e)
+            throw e
+        }
     }
 }

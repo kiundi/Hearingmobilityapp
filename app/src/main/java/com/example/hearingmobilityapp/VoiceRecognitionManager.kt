@@ -2,49 +2,28 @@ package com.example.hearingmobilityapp
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.vosk.Model
-import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
-import java.io.File
-import java.io.IOException
-
 
 /**
- * Manager class for handling voice recognition using Vosk
+ * Manager class for handling voice recognition using Android's built-in SpeechRecognizer
  */
-class VoiceRecognitionManager(private val context: Context) : RecognitionListener {
+class VoiceRecognitionManager(private val context: Context) {
     companion object {
         private const val TAG = "VoiceRecognitionManager"
-        private const val SAMPLE_RATE = 16000
     }
 
-    private var recorder: AudioRecord? = null
-    private var recordingJob: Job? = null
-    private var bufferSize: Int = 0
-
-    // Speech recognition service
-    private var speechService: SpeechService? = null
-    private var model: Model? = null
-    
-    // Model manager
-    private val modelManager = VoskModelManager(context)
+    private var speechRecognizer: SpeechRecognizer? = null
     
     // Recording state
     private val _isRecording = MutableStateFlow(false)
@@ -62,8 +41,8 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
     private val _recordingDuration = MutableStateFlow(0)
     val recordingDuration: StateFlow<Int> = _recordingDuration
     
-    // Model initialization state
-    private val _isModelInitialized = MutableStateFlow(false)
+    // Model initialization state - always true for system speech recognizer
+    private val _isModelInitialized = MutableStateFlow(true)
     val isModelInitialized: StateFlow<Boolean> = _isModelInitialized
     
     // Recording timer
@@ -80,98 +59,30 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
     }
 
     /**
-     * Initialize the speech recognition model
+     * Initialize the speech recognition
      * @return true if initialization was successful, false otherwise
      */
-    suspend fun initModel(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun initModel(): Boolean {
         try {
-            if (model != null) {
-                _isModelInitialized.value = true
-                return@withContext true
-            }
-            
-            // Ensure model is available
-            val modelAvailable = modelManager.ensureModelAvailable()
-            if (!modelAvailable) {
-                Log.e(TAG, "Failed to ensure model availability - model not available")
+            // Check if device supports speech recognition
+            if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+                Log.e(TAG, "Speech recognition not available on this device")
                 _isModelInitialized.value = false
-                return@withContext false
-            }
-            
-            // Get the model path and verify it
-            val modelPath = File(context.filesDir, "model")
-            if (!verifyModelDirectory(modelPath)) {
-                Log.e(TAG, "Model directory verification failed")
-                // Try downloading the model again
-                val downloadSuccess = modelManager.downloadModel()
-                if (!downloadSuccess || !verifyModelDirectory(modelPath)) {
-                    Log.e(TAG, "Model download failed or still not valid after download")
-                    _isModelInitialized.value = false
-                    return@withContext false
-                }
-            }
-            
-            // Initialize model
-            try {
-                Log.d(TAG, "Attempting to create Vosk model from: ${modelPath.absolutePath}")
-                model = Model(modelPath.absolutePath)
-                _isModelInitialized.value = true
-                Log.d(TAG, "Successfully created Vosk model")
-                return@withContext true
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to create Vosk model object: ${e.message}", e)
-                _isModelInitialized.value = false
-                return@withContext false
-            }
-        } catch (e: IOException) {
-            Log.e(TAG, "Failed to initialize model: ${e.message}", e)
-            _isModelInitialized.value = false
-            return@withContext false
-        }
-    }
-
-    private fun processAudio(data: ByteArray) {
-        Log.d(TAG, "Processing audio chunk: size=${data.size}, first few bytes=${data.take(4)}")
-        try {
-            speechService?.let { service ->
-                service
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error processing audio: ${e.message}", e)
-        }
-    }
-    
-    /**
-     * Verify that the model directory has the required structure and files
-     */
-    private fun verifyModelDirectory(modelDir: File): Boolean {
-        if (!modelDir.exists() || !modelDir.isDirectory) {
-            Log.e(TAG, "Model directory does not exist or is not a directory: ${modelDir.absolutePath}")
-            return false
-        }
-        
-        // Log the full directory contents
-        Log.d(TAG, "Checking model directory: ${modelDir.absolutePath}")
-        modelDir.listFiles()?.forEach { file ->
-            Log.d(TAG, "Found file: ${file.name}, isDir=${file.isDirectory}, size=${file.length()}")
-            if (file.isDirectory) {
-                file.listFiles()?.forEach { subFile ->
-                    Log.d(TAG, "  - Subfile: ${subFile.name}, isDir=${subFile.isDirectory}, size=${subFile.length()}")
-                }
-            }
-        }
-        
-        // Vosk requires specific files to be present
-        val requiredFiles = arrayOf("am", "conf", "graph", "ivector")
-        for (fileName in requiredFiles) {
-            val file = File(modelDir, fileName)
-            if (!file.exists()) {
-                Log.e(TAG, "Required model file missing: $fileName")
                 return false
             }
+            
+            // Create recognizer
+            if (speechRecognizer == null) {
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            }
+            
+            _isModelInitialized.value = true
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize speech recognizer: ${e.message}", e)
+            _isModelInitialized.value = false
+            return false
         }
-        
-        return true
     }
 
     /**
@@ -179,8 +90,8 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
      */
     fun startRecording() {
         Log.d(TAG, "startRecording called")
-        if (_isRecording.value || !_isModelInitialized.value) {
-            Log.d(TAG, "Cannot start recording: recording=${_isRecording.value}, model initialized=${_isModelInitialized.value}")
+        if (_isRecording.value) {
+            Log.d(TAG, "Already recording")
             return
         }
 
@@ -194,51 +105,164 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
         }
 
         try {
-            // Initialize audio recorder
-            bufferSize = AudioRecord.getMinBufferSize(
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-
-            recorder = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
-            )
-
-            Log.d(TAG, "Audio parameters - Sample rate: $SAMPLE_RATE, Buffer size: $bufferSize")
-            Log.d(TAG, "Recorder state: ${recorder?.state}")
-
-            // Create recognizer
-            Log.d(TAG, "Creating recognizer with model at ${context.filesDir}/model")
-            val recognizer = Recognizer(model, SAMPLE_RATE.toFloat())
-
-            // Start speech service
-            speechService = SpeechService(recognizer, SAMPLE_RATE.toFloat())
-            speechService?.startListening(this)
-
+            // First clean up any existing recognizer to avoid conflicts
+            release()
+            
+            // Create a new recognizer
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            
+            // Prepare the recognition intent
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                // Use shorter silence timeouts for more responsive UI
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000)
+                // No beep sounds
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 0)
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+            }
+            
+            // Set up the listener
+            speechRecognizer?.setRecognitionListener(createRecognitionListener())
+            
             // Reset values
             _transcribedText.value = ""
             _partialText.value = ""
             durationInSeconds = 0
             _recordingDuration.value = 0
 
-            // Update recording state
+            // Update recording state first to ensure UI updates
             _isRecording.value = true
-
-            // Start audio processing
-            startAudioProcessing()
-
+            
             // Start timer
             handler.post(updateTimer)
-
+            
+            // Start listening after setting up state
+            speechRecognizer?.startListening(intent)
+            
             Log.d(TAG, "Started recording successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start recording: ${e.message}", e)
+            _isRecording.value = false
             release()
+        }
+    }
+
+    private fun createRecognitionListener(): RecognitionListener {
+        return object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {
+                Log.d(TAG, "Ready for speech")
+            }
+
+            override fun onBeginningOfSpeech() {
+                Log.d(TAG, "Beginning of speech")
+            }
+
+            override fun onRmsChanged(rmsdB: Float) {
+                // Optional: could update a visual indicator of voice level here
+            }
+
+            override fun onBufferReceived(buffer: ByteArray?) {
+                // Not needed for basic functionality
+            }
+
+            override fun onEndOfSpeech() {
+                Log.d(TAG, "End of speech")
+                
+                // Don't restart immediately to give the system time to process results
+                // We'll handle restarting after results or errors
+            }
+
+            override fun onError(error: Int) {
+                val errorMessage = when (error) {
+                    SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
+                    SpeechRecognizer.ERROR_CLIENT -> "Client side error"
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
+                    SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                    SpeechRecognizer.ERROR_NO_MATCH -> "No match found"
+                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognition service busy"
+                    SpeechRecognizer.ERROR_SERVER -> "Server error"
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input"
+                    else -> "Unknown error"
+                }
+                
+                Log.e(TAG, "Recognition error: $errorMessage ($error)")
+                
+                // Only restart for non-fatal errors and if still recording
+                if ((error == SpeechRecognizer.ERROR_NO_MATCH || 
+                     error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) && 
+                     _isRecording.value) {
+                    
+                    // Wait briefly before restarting to avoid rapid cycling
+                    handler.postDelayed({
+                        try {
+                            if (_isRecording.value) {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                                    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                                }
+                                speechRecognizer?.startListening(intent)
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error restarting speech recognition: ${e.message}", e)
+                        }
+                    }, 300) // Short delay before restart
+                }
+            }
+
+            override fun onResults(results: Bundle?) {
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) {
+                    val text = matches[0]
+                    if (text.isNotEmpty()) {
+                        // Append to existing text instead of replacing
+                        val currentText = _transcribedText.value
+                        val newText = if (currentText.isEmpty()) text else "$currentText $text"
+                        _transcribedText.value = newText
+                        Log.d(TAG, "Updated transcribed text: '$newText'")
+                    }
+                }
+                _partialText.value = ""
+                
+                // Restart listening if still recording
+                if (_isRecording.value) {
+                    handler.postDelayed({
+                        try {
+                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                            }
+                            speechRecognizer?.startListening(intent)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error restarting speech recognition: ${e.message}", e)
+                        }
+                    }, 300) // Short delay before restart
+                }
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) {
+                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) {
+                    val text = matches[0]
+                    if (text.isNotEmpty()) {
+                        _partialText.value = text
+                        Log.d(TAG, "Partial result: '$text'")
+                    } else {
+                        _partialText.value = ""
+                    }
+                }
+            }
+
+            override fun onEvent(eventType: Int, params: Bundle?) {
+                // Not needed for basic functionality
+            }
         }
     }
 
@@ -253,112 +277,13 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
         return String.format("%02d:%02d", minutes, seconds)
     }
 
-    // RecognitionListener implementation
-    override fun onPartialResult(hypothesis: String?) {
-        hypothesis?.let {
-            try {
-                // Extract partial text from JSON response
-                val jsonResult = org.json.JSONObject(it)
-                val partialText = jsonResult.optString("partial", "")
-                if (partialText.isNotEmpty()) {
-                    _partialText.value = partialText
-                } else {
-                    _partialText.value = ""
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error parsing partial result: ${e.message}")
-            }
-        } ?: run {
-            _partialText.value = ""
-        }
-    }
-
-    override fun onResult(hypothesis: String?) {
-        hypothesis?.let {
-            try {
-                // Extract final text from JSON response
-                val jsonResult = org.json.JSONObject(it)
-                val text = jsonResult.optString("text", "")
-                if (text.isNotEmpty()) {
-                    _transcribedText.value = text
-                    _partialText.value = ""
-                } else {
-                    _transcribedText.value = ""
-                    _partialText.value = ""
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error parsing result: ${e.message}")
-            }
-        } ?: run {
-            _transcribedText.value = ""
-            _partialText.value = ""
-        }
-    }
-
-    override fun onFinalResult(hypothesis: String?) {
-        Log.d(TAG, "onFinalResult received hypothesis: $hypothesis")
-        hypothesis?.let {
-            try {
-                val jsonResult = org.json.JSONObject(it)
-                val text = jsonResult.optString("text", "")
-                Log.d(TAG, "Parsed final text: '$text'")
-                if (text.isNotEmpty()) {
-                    _transcribedText.value = text
-                    Log.d(TAG, "Updated transcribed text state flow with: '$text'")
-                } else {
-                    _transcribedText.value = ""
-                    Log.e(TAG, "Empty text received in final result")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error parsing final result: ${e.message}", e)
-            }
-        } ?: run {
-            Log.e(TAG, "Null hypothesis received in final result")
-            _transcribedText.value = ""
-        }
-    }
-
-    private fun startAudioProcessing() {
-        recordingJob = CoroutineScope(Dispatchers.IO).launch {
-            val buffer = ByteArray(bufferSize)
-            var gain = 2.0f  // Amplification factor
-
-            while (isActive && isRecording.value) {
-                val bytesRead = recorder?.read(buffer, 0, bufferSize) ?: -1
-                if (bytesRead > 0) {
-                    // Amplify the audio
-                    for (i in 0 until bytesRead step 2) {
-                        val sample = (buffer[i+1].toInt() shl 8) or (buffer[i].toInt() and 0xFF)
-                        val amplified = (sample * gain).toInt().coerceIn(-32768, 32767)
-                        buffer[i] = (amplified and 0xFF).toByte()
-                        buffer[i+1] = (amplified shr 8).toByte()
-                    }
-                    processAudio(buffer)
-                }
-            }
-        }
-    }
-
     fun stopRecording() {
         Log.d(TAG, "stopRecording called. Current state: recording=${_isRecording.value}")
         if (!_isRecording.value) return
 
         try {
-            // Stop and release audio recorder
-            recorder?.stop()
-            recorder?.release()
-            recorder = null
-
-            // Cancel recording job
-            recordingJob?.cancel()
-            recordingJob = null
-
-            speechService?.let { service ->
-                Log.d(TAG, "Stopping speech service")
-                service.stop()
-            }
-
-            speechService = null
+            speechRecognizer?.stopListening()
+            
             _isRecording.value = false
             handler.removeCallbacks(updateTimer)
 
@@ -368,45 +293,23 @@ class VoiceRecognitionManager(private val context: Context) : RecognitionListene
         }
     }
 
-    override fun onError(exception: Exception?) {
-        Log.e(TAG, "Recognition error: ${exception?.message}", exception)
-    }
-
-    override fun onTimeout() {
-        Log.d(TAG, "Recognition timeout")
-    }
-
-
     fun release() {
         Log.d(TAG, "Releasing resources in VoiceRecognitionManager")
 
-        // Stop and release audio recorder
-        recorder?.stop()
-        recorder?.release()
-        recorder = null
-
-        // Cancel recording job
-        recordingJob?.cancel()
-        recordingJob = null
-
-        // Stop the speech service if it's running
-        speechService?.stop()
-        speechService = null
-
-        // Release the model if it's initialized
-        model?.close()
-        model = null
+        // Stop the speech recognizer if it's running
+        speechRecognizer?.cancel()
+        speechRecognizer?.destroy()
+        speechRecognizer = null
 
         // Reset state flows
         _isRecording.value = false
         _transcribedText.value = ""
         _partialText.value = ""
         _recordingDuration.value = 0
-        _isModelInitialized.value = false
 
         // Remove any pending callbacks
         handler.removeCallbacks(updateTimer)
 
         Log.d(TAG, "Resources released successfully")
     }
-}
+} 

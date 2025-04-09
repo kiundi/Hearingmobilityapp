@@ -156,8 +156,8 @@ fun SignupScreen(
                         when (val result = userViewModel.signUp(fullName, email, password)) {
                             is AuthResult.Success -> {
                                 Log.d("SignUp", "Successfully created account")
-                                navController.navigate("main") {
-                                    popUpTo("signup") { inclusive = true }
+                                navController.navigate("emergency_contacts") {
+                                    popUpTo(0) { inclusive = true }
                                 }
                             }
                             is AuthResult.Error -> {

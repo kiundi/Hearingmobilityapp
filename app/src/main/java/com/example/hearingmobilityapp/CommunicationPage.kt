@@ -1,18 +1,22 @@
 package com.example.hearingmobilityapp
 
-import android.widget.Toast
 import android.Manifest
 import android.content.pm.PackageManager
-import androidx.core.content.ContextCompat
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -63,6 +68,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 private const val MAX_CHARACTERS = 500
@@ -119,12 +125,29 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
         viewModel.message.value?.let { message ->
             if (message.isNotEmpty()) {
                 displayedMessage = message
+                // Also clear typed message when voice input is received
+                typedMessage = ""
                 // Check if the message is a favorite
                 viewModel.isMessageFavorite(message) { isFav ->
                     isFavorite = isFav
                 }
             }
         }
+    }
+
+    // Animation for microphone button
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val scale = if (isListening) {
+        infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.2f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000),
+                repeatMode = RepeatMode.Reverse
+            ), label = "scale"
+        ).value
+    } else {
+        1f
     }
 
     // Show delete confirmation dialog if needed
@@ -285,9 +308,19 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                     
                     // Main displayed message
                     Text(
-                        text = if (displayedMessage.isNotEmpty()) displayedMessage else "Message appears here",
-                        color = if (displayedMessage.isNotEmpty()) Color.Black else Color.LightGray,
-                        fontSize = if (displayedMessage.isNotEmpty()) 36.sp else 48.sp,
+                        text = if (isListening && partialTranscription.isNotEmpty()) {
+                            partialTranscription
+                        } else if (displayedMessage.isNotEmpty()) {
+                            displayedMessage
+                        } else {
+                            "Message appears here"
+                        },
+                        color = when {
+                            isListening && partialTranscription.isNotEmpty() -> Color(0xFF007AFF) // Blue for live transcription
+                            displayedMessage.isNotEmpty() -> Color.Black
+                            else -> Color.LightGray
+                        },
+                        fontSize = if (displayedMessage.isNotEmpty() || (isListening && partialTranscription.isNotEmpty())) 36.sp else 48.sp,
                         textAlign = TextAlign.Center,
                         lineHeight = 44.sp, // Improved line height for better readability
                         style = TextStyle(
@@ -376,8 +409,8 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                         onDone = {
                             if (typedMessage.isNotEmpty()) {
                                 displayedMessage = typedMessage
-                                // Save the message to the database
-                                viewModel.saveMessage(typedMessage)
+                                // No longer save to Firebase, just update local state
+                                viewModel.updateMessage(typedMessage)
                                 // Clear the input field
                                 typedMessage = ""
                                 // Check if the message is a favorite
@@ -398,11 +431,10 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                     onClick = {
                         if (isListening) {
                             viewModel.stopListening()
-                            // When stopping, save the transcribed message
+                            // When stopping, just update the displayed message but don't save to Firebase
                             viewModel.message.value?.let { message ->
                                 if (message.isNotEmpty()) {
                                     displayedMessage = message
-                                    viewModel.saveMessage(message)
                                 }
                             }
                             Toast.makeText(context, "Stopped listening", Toast.LENGTH_SHORT).show()
@@ -416,7 +448,7 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                                     when (viewModel.modelInitStatus.value) {
                                         ModelInitStatus.INITIALIZED -> {
                                             viewModel.startListening()
-                                            Toast.makeText(context, "Starting voice recognition...", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Listening...", Toast.LENGTH_SHORT).show()
                                         }
                                         else -> {
                                             Toast.makeText(context, "Voice recognition is initializing, please wait...", Toast.LENGTH_LONG).show()
@@ -429,12 +461,31 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                                 }
                             }
                         }
-                    }
+                    },
+                    modifier = Modifier
+                        .size(64.dp)
+                        .scale(scale) // Apply pulsating scale
+                        .background(
+                            color = if (isListening) Color(0xFFFF9500) else Color(0xFFE6F0FF),
+                            shape = CircleShape
+                        )
+                        .then(
+                            if (isListening) {
+                                Modifier.border(
+                                    width = 2.dp,
+                                    color = Color.White,
+                                    shape = CircleShape
+                                )
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(8.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.microphone_icon),
                         contentDescription = "Microphone",
-                        tint = if (isListening) Color(0xFFFF9500) else Color(0xFF007AFF),
+                        tint = if (isListening) Color.White else Color(0xFF007AFF),
                         modifier = Modifier.size(32.dp)
                     )
                 }

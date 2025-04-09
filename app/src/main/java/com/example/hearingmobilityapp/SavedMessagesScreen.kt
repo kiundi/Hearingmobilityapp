@@ -24,15 +24,10 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,9 +44,6 @@ fun SavedMessagesScreen(
     val savedMessages by viewModel.savedMessages.collectAsState(initial = emptyList())
     val favoriteMessages by viewModel.favoriteMessages.collectAsState(initial = emptyList())
     
-    var selectedTabIndex by remember { mutableStateOf(0) }
-    val tabs = listOf("All Messages", "Favorites")
-
     Box(modifier = Modifier.fillMaxSize()) {
         // Faded background overlay
         Box(
@@ -87,67 +79,24 @@ fun SavedMessagesScreen(
                 Spacer(modifier = Modifier.size(48.dp))
             }
             
-            // Tab row for All Messages and Favorites
-            TabRow(
-                selectedTabIndex = selectedTabIndex,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                tabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = selectedTabIndex == index,
-                        onClick = { selectedTabIndex = index },
-                        text = { Text(title) }
-                    )
-                }
-            }
-            
             Spacer(modifier = Modifier.height(16.dp))
             
-            when (selectedTabIndex) {
-                0 -> {
-                    // All Messages Tab
-                    if (savedMessages.isEmpty()) {
-                        Text("No saved messages yet.", color = Color.Gray, fontSize = 16.sp)
-                    } else {
-                        LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-                            items(savedMessages) { message ->
-                                MessageItem(
-                                    message = message,
-                                    onMessageClick = { 
-                                        onMessageSelected(message.text)
-                                        onClose() 
-                                    },
-                                    onFavoriteToggle = { 
-                                        if (message.isFavorite) {
-                                            viewModel.removeFromFavorites(message.text)
-                                        } else {
-                                            viewModel.addToFavorites(message.text)
-                                        }
-                                    }
-                                )
+            // Only show favorite messages
+            if (favoriteMessages.isEmpty()) {
+                Text("No favorite messages yet.", color = Color.Gray, fontSize = 16.sp)
+            } else {
+                LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
+                    items(favoriteMessages) { message ->
+                        MessageItem(
+                            message = message,
+                            onMessageClick = { 
+                                onMessageSelected(message.text)
+                                onClose() 
+                            },
+                            onFavoriteToggle = { 
+                                viewModel.removeFromFavorites(message.text)
                             }
-                        }
-                    }
-                }
-                1 -> {
-                    // Favorites Tab
-                    if (favoriteMessages.isEmpty()) {
-                        Text("No favorite messages yet.", color = Color.Gray, fontSize = 16.sp)
-                    } else {
-                        LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-                            items(favoriteMessages) { message ->
-                                MessageItem(
-                                    message = message,
-                                    onMessageClick = { 
-                                        onMessageSelected(message.text)
-                                        onClose() 
-                                    },
-                                    onFavoriteToggle = { 
-                                        viewModel.removeFromFavorites(message.text)
-                                    }
-                                )
-                            }
-                        }
+                        )
                     }
                 }
             }

@@ -16,6 +16,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -99,29 +101,70 @@ fun AccountScreen(
         Divider(color = Color(0xFF6C757D), thickness = 1.dp)
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Settings Section
+        // Emergency Contacts Section
         Text(
-            text = "Settings",
+            text = "Emergency Contacts",
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.Black,
             modifier = Modifier.padding(vertical = 8.dp)
         )
 
-        // Settings options
-        SettingsItem(
-            text = "Notifications",
-            icon = R.drawable.ic_notification,
-            showToggle = true
-        )
-        
-        SettingsItem(
-            text = "Dark Mode",
-            icon = R.drawable.dark_mode,
-            showToggle = true
-        )
+        currentUser?.emergencyContacts?.forEach { contact ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = contact.name,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = contact.phoneNumber,
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
+                    if (contact.isPrimary) {
+                        Text(
+                            text = "Primary Contact",
+                            fontSize = 12.sp,
+                            color = Color(0xFF007AFF)
+                        )
+                    }
+                }
+            }
+        }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Button(
+            onClick = { navController.navigate("emergency_contacts") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Text("Manage Emergency Contacts")
+        }
+
+        // Emergency Report Button
+        Button(
+            onClick = { navController.navigate("report_emergency") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30)) // Red color for emergency
+        ) {
+            Text("Report Emergency")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Divider(color = Color(0xFF6C757D), thickness = 1.dp)
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Logout Button
         Button(
@@ -146,7 +189,7 @@ fun AccountScreen(
                         scope.launch {
                             userViewModel.signOut()
                             navController.navigate("login") {
-                                popUpTo("main") { inclusive = true }
+                                popUpTo(0) { inclusive = true }
                             }
                         }
                         showLogoutDialog = false
