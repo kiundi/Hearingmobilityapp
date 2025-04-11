@@ -1,6 +1,7 @@
 package com.example.hearingmobilityapp
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -8,134 +9,17 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 
 class GTFSRepository(private val db: GTFSDatabase) {
+    private val TAG = "GTFSRepository"
 
     suspend fun loadGTFSData(context: Context) {
         withContext(Dispatchers.IO) {
-            // Clear existing data
-            db.stopDao().deleteAllStopTimes()
-            db.stopDao().deleteAllTrips()
-            db.stopDao().deleteAllStops()
-            db.stopDao().deleteAllRoutes()
-
-            // Import new data in the correct order to maintain referential integrity
-            importRoutesFromGTFS(context)
-            importStopsFromGTFS(context)
-            importTripsFromGTFS(context)
-            importStopTimesFromGTFS(context)
-        }
-    }
-
-    private suspend fun importStopsFromGTFS(context: Context) {
-        withContext(Dispatchers.IO) {
             try {
-                val stopsList = mutableListOf<StopEntity>()
-                context.assets.open("stops.txt").use { inputStream ->
-                    val reader = BufferedReader(InputStreamReader(inputStream))
-                    reader.readLine() // Skip header
-                    reader.forEachLine { line ->
-                        val tokens = line.split(",")
-                        if (tokens.size >= 5) {
-                            val stop = StopEntity(
-                                stop_id = tokens[0],
-                                stop_name = tokens[2],
-                                stop_lat = tokens[3].toDoubleOrNull() ?: 0.0,
-                                stop_lon = tokens[4].toDoubleOrNull() ?: 0.0,
-                                zone_id = tokens.getOrNull(5)?.ifEmpty { null },
-                                stop_url = tokens.getOrNull(6)?.ifEmpty { null },
-                                location_type = tokens.getOrNull(7)?.toIntOrNull(),
-                                parent_station = tokens.getOrNull(8)?.ifEmpty { null },
-                                stop_code = tokens.getOrNull(9)?.ifEmpty { null }
-                            )
-                            stopsList.add(stop)
-                        }
-                    }
-                }
-                db.stopDao().insertStops(stopsList)
+                // Use GTFSDataLoader as the single source of truth
+                GTFSDataLoader.loadGTFSData(context, db)
+                Log.d(TAG, "GTFS data loaded successfully")
             } catch (e: Exception) {
-                throw Exception("Failed to import stops: ${e.message}")
-            }
-        }
-    }
-
-    private suspend fun importTripsFromGTFS(context: Context) {
-        withContext(Dispatchers.IO) {
-            try {
-                val tripsList = mutableListOf<TripEntity>()
-                context.assets.open("trips.txt").use { inputStream ->
-                    val reader = BufferedReader(InputStreamReader(inputStream))
-                    reader.readLine() // Skip header
-                    reader.forEachLine { line ->
-                        val tokens = line.split(",")
-                        if (tokens.size >= 4) {
-                            val trip = TripEntity(
-                                trip_id = tokens[0],
-                                route_id = tokens[1],
-                                service_id = tokens[2],
-                                trip_headsign = tokens.getOrNull(3) ?: "",
-                                shape_id = tokens.getOrNull(4) ?: ""
-                            )
-                            tripsList.add(trip)
-                        }
-                    }
-                }
-                db.stopDao().insertTrips(tripsList)
-            } catch (e: Exception) {
-                throw Exception("Failed to import trips: ${e.message}")
-            }
-        }
-    }
-
-    private suspend fun importStopTimesFromGTFS(context: Context) {
-        withContext(Dispatchers.IO) {
-            try {
-                val stopTimesList = mutableListOf<StopTimeEntity>()
-                context.assets.open("stop_times.txt").use { inputStream ->
-                    val reader = BufferedReader(InputStreamReader(inputStream))
-                    reader.readLine() // Skip header
-                    reader.forEachLine { line ->
-                        val tokens = line.split(",")
-                        if (tokens.size >= 5) {
-                            val stopTime = StopTimeEntity(
-                                trip_id = tokens[0],
-                                arrival_time = tokens[1],
-                                departure_time = tokens[2],
-                                stop_id = tokens[3],
-                                stop_sequence = tokens[4].toIntOrNull() ?: 0
-                            )
-                            stopTimesList.add(stopTime)
-                        }
-                    }
-                }
-                db.stopDao().insertStopTimes(stopTimesList)
-            } catch (e: Exception) {
-                throw Exception("Failed to import stop times: ${e.message}")
-            }
-        }
-    }
-
-    private suspend fun importRoutesFromGTFS(context: Context) {
-        withContext(Dispatchers.IO) {
-            try {
-                val routesList = mutableListOf<RouteEntity>()
-                context.assets.open("routes.txt").use { inputStream ->
-                    val reader = BufferedReader(InputStreamReader(inputStream))
-                    reader.readLine() // Skip header
-                    reader.forEachLine { line ->
-                        val tokens = line.split(",")
-                        if (tokens.size >= 4) {
-                            val route = RouteEntity(
-                                route_id = tokens[0],
-                                route_short_name = tokens[1],
-                                route_long_name = tokens[2],
-                                route_type = tokens[3].toIntOrNull() ?: 0
-                            )
-                            routesList.add(route)
-                        }
-                    }
-                }
-                db.stopDao().insertRoutes(routesList)
-            } catch (e: Exception) {
-                throw Exception("Failed to import routes: ${e.message}")
+                Log.e(TAG, "Error loading GTFS data: ${e.message}", e)
+                throw Exception("Failed to load GTFS data: ${e.message}")
             }
         }
     }

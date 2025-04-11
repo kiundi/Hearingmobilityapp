@@ -10,8 +10,14 @@ import kotlinx.coroutines.withContext
 
 object GTFSDataLoader {
     private const val TAG = "GTFSDataLoader"
+    private var isInitialized = false
 
     fun loadGTFSData(context: Context, database: GTFSDatabase) {
+        if (isInitialized) {
+            Log.d(TAG, "GTFS data already loaded")
+            return
+        }
+
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 withContext(Dispatchers.IO) {
@@ -26,10 +32,13 @@ object GTFSDataLoader {
                     loadStopTimes(context, database)
                     loadFrequencies(context, database)
                     
+                    isInitialized = true
                     Log.i(TAG, "GTFS data loaded successfully")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading GTFS data", e)
+                isInitialized = false
+                throw e
             }
         }
     }
@@ -50,6 +59,7 @@ object GTFSDataLoader {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading agencies", e)
+            throw e
         }
     }
 
@@ -75,6 +85,7 @@ object GTFSDataLoader {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading calendar", e)
+            throw e
         }
     }
 
@@ -93,6 +104,7 @@ object GTFSDataLoader {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error loading calendar dates", e)
+            throw e
         }
     }
 
@@ -112,6 +124,7 @@ object GTFSDataLoader {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading routes", e)
+            throw e
         }
     }
 
@@ -131,6 +144,7 @@ object GTFSDataLoader {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error loading shapes", e)
+            throw e
         }
     }
 
@@ -155,6 +169,7 @@ object GTFSDataLoader {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading stops", e)
+            throw e
         }
     }
 
@@ -175,6 +190,7 @@ object GTFSDataLoader {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error loading trips", e)
+            throw e
         }
     }
 
@@ -195,6 +211,7 @@ object GTFSDataLoader {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading stop times", e)
+            throw e
         }
     }
 
@@ -214,6 +231,7 @@ object GTFSDataLoader {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error loading frequencies", e)
+            throw e
         }
     }
 }

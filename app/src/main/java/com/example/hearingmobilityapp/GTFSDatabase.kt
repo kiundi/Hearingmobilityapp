@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -43,10 +44,20 @@ abstract class GTFSDatabase : RoomDatabase() {
                     context.applicationContext,
                     GTFSDatabase::class.java,
                     "gtfs_database"
-                ).build()
+                )
+                .addCallback(GTFSCallback(context))
+                .build()
                 INSTANCE = instance
                 instance
             }
         }
+    }
+}
+
+class GTFSCallback(private val context: Context) : RoomDatabase.Callback() {
+    override fun onCreate(db: SupportSQLiteDatabase) {
+        super.onCreate(db)
+        // Enable foreign key constraints
+        db.execSQL("PRAGMA foreign_keys = ON")
     }
 }
