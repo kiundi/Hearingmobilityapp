@@ -46,6 +46,7 @@ abstract class GTFSDatabase : RoomDatabase() {
                     "gtfs_database"
                 )
                 .addCallback(GTFSCallback(context))
+                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance
