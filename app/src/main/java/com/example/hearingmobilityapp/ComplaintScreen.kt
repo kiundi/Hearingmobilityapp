@@ -4,15 +4,24 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun ComplaintScreen() {
@@ -25,36 +34,62 @@ fun ComplaintScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color(0xFFF2F2F7))
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Text(
+            text = "Report a Complaint",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.Black,
+            modifier = Modifier.padding(vertical = 24.dp)
+        )
+        
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Your Name") },
-            modifier = Modifier.fillMaxWidth()
+            label = { Text("Your Name", color = Color(0xFF6C757D)) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF007AFF),
+                unfocusedBorderColor = Color.LightGray,
+                cursorColor = Color(0xFF007AFF)
+            )
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedTextField(
             value = phone,
             onValueChange = { phone = it },
-            label = { Text("Your Phone Number") },
-            modifier = Modifier.fillMaxWidth()
+            label = { Text("Your Phone Number", color = Color(0xFF6C757D)) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF007AFF),
+                unfocusedBorderColor = Color.LightGray,
+                cursorColor = Color(0xFF007AFF)
+            )
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedTextField(
             value = complaint,
             onValueChange = { complaint = it },
-            label = { Text("Describe your complaint") },
-            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Describe your complaint", color = Color(0xFF6C757D)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 150.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF007AFF),
+                unfocusedBorderColor = Color.LightGray,
+                cursorColor = Color(0xFF007AFF)
+            ),
             maxLines = 5
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         Button(
             onClick = {
@@ -65,9 +100,20 @@ fun ComplaintScreen() {
                     complaint.text
                 )
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF007AFF),
+                contentColor = Color.White
+            ),
+            shape = RoundedCornerShape(8.dp)
         ) {
-            Text("Send Complaint")
+            Text(
+                "Send Complaint", 
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }

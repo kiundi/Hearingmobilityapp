@@ -26,11 +26,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.tasks.Tasks
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
 import java.util.*
@@ -49,7 +47,11 @@ private suspend fun getCurrentLocation(
         setLocationLoading(true)
         val location = withContext(Dispatchers.IO) {
             try {
-                fusedLocationClient.lastLocation.await()
+                val locationTask = fusedLocationClient.lastLocation
+                while (!locationTask.isComplete) {
+                    delay(100)
+                }
+                locationTask.result
             } catch (e: Exception) {
                 Log.e("LocationInputField", "Error getting location: ${e.message}")
                 null

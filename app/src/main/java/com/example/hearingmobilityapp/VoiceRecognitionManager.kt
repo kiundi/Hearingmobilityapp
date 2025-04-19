@@ -115,13 +115,13 @@ class VoiceRecognitionManager(private val context: Context) {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                // Use shorter silence timeouts for more responsive UI
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                // Use longer silence timeouts for better recognition
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000)
                 // No beep sounds
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 0)
-                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             }
             
             // Set up the listener
@@ -203,15 +203,23 @@ class VoiceRecognitionManager(private val context: Context) {
                                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3) // Increase results count
                                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                                    // Use longer silence timeout for better recognition
+                                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500)
+                                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000)
                                 }
                                 speechRecognizer?.startListening(intent)
+                                
+                                // Avoid duplicate error logging for common errors
+                                if (error != SpeechRecognizer.ERROR_NO_MATCH) {
+                                    Log.d(TAG, "Restarted listening after error")
+                                }
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error restarting speech recognition: ${e.message}", e)
                         }
-                    }, 300) // Short delay before restart
+                    }, 500) // Slightly longer delay before restart
                 }
             }
 
@@ -225,9 +233,23 @@ class VoiceRecognitionManager(private val context: Context) {
                         val newText = if (currentText.isEmpty()) text else "$currentText $text"
                         _transcribedText.value = newText
                         Log.d(TAG, "Updated transcribed text: '$newText'")
+                        
+                        // Clear partial text since we have final results
+                        _partialText.value = ""
+                    }
+                } else {
+                    Log.d(TAG, "No recognition results received")
+                    
+                    // If no results but we have partial text, use that as final result
+                    val partialText = _partialText.value
+                    if (partialText.isNotEmpty()) {
+                        val currentText = _transcribedText.value
+                        val newText = if (currentText.isEmpty()) partialText else "$currentText $partialText"
+                        _transcribedText.value = newText
+                        Log.d(TAG, "Using partial text as final: '$partialText'")
+                        _partialText.value = ""
                     }
                 }
-                _partialText.value = ""
                 
                 // Restart listening if still recording
                 if (_isRecording.value) {
@@ -236,8 +258,11 @@ class VoiceRecognitionManager(private val context: Context) {
                             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
                                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                                // Use longer silence timeouts for better recognition
+                                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500)
+                                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000)
                             }
                             speechRecognizer?.startListening(intent)
                         } catch (e: Exception) {

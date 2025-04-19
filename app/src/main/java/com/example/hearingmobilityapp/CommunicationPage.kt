@@ -2,6 +2,7 @@ package com.example.hearingmobilityapp
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,6 +46,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -70,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import java.util.Locale
 
 private const val MAX_CHARACTERS = 500
 
@@ -85,6 +88,24 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
 
     var showSavedMessagesScreen by remember { mutableStateOf(false) }
     var isFavorite by remember { mutableStateOf(false) }
+    
+    // Text-to-speech state
+    var isSpeaking by remember { mutableStateOf(false) }
+    var tts: TextToSpeech? = remember { null }
+    
+    // Initialize TTS engine
+    DisposableEffect(Unit) {
+        tts = TextToSpeech(context) { status ->
+            if (status != TextToSpeech.SUCCESS) {
+                Toast.makeText(context, "Text-to-speech initialization failed", Toast.LENGTH_SHORT).show()
+            }
+        }
+        
+        onDispose {
+            tts?.stop()
+            tts?.shutdown()
+        }
+    }
     
     // State for delete confirmation dialog
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -149,6 +170,20 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
     } else {
         1f
     }
+    
+    // Animation for speaker button
+    val speakerScale = if (isSpeaking) {
+        infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.2f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000),
+                repeatMode = RepeatMode.Reverse
+            ), label = "speakerScale"
+        ).value
+    } else {
+        1f
+    }
 
     // Show delete confirmation dialog if needed
     if (showDeleteDialog) {
@@ -190,7 +225,7 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                 .verticalScroll(scrollState),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Top Row: Saved Messages & Favorites with improved layout
+            // Top Row: Saved Messages, Speaker & Favorites with improved layout
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -230,9 +265,119 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                // Speaker button in the middle
+                IconButton(
+                    onClick = {
+                        if (displayedMessage.isNotEmpty() && displayedMessage != "Message appears here" && !isSpeaking) {
+                            tts?.let { textToSpeech ->
+                                // Check if TTS is initialized properly
+                                if (textToSpeech.setLanguage(Locale.getDefault()) != TextToSpeech.LANG_MISSING_DATA && 
+                                    textToSpeech.setLanguage(Locale.getDefault()) != TextToSpeech.LANG_NOT_SUPPORTED) {
+                                    
+                                    // Set speaking state to true
+                                    isSpeaking = true
+                                    
+                                    // Stop any previous utterance
+                                    textToSpeech.stop()
+                                    
+                                    // Set up a listener for when speech completes
+                                    textToSpeech.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                                        override fun onStart(utteranceId: String?) {
+                                            // Speech started
+                                        }
+                                        
+                                        override fun onDone(utteranceId: String?) {
+                                            // We need to update the UI on the main thread
+                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                isSpeaking = false
+                                            }
+                                        }
+                                        
+                                        @Deprecated("Deprecated in Java")
+                                        override fun onError(utteranceId: String?) {
+                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                isSpeaking = false
+                                                Toast.makeText(context, "Speech failed", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    })
+                                    
+                                    // Prepare speech parameters
+                                    val params = HashMap<String, String>().apply {
+                                        put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "messageId")
+                                    }
+                                    
+                                    // Speak the text
+                                    textToSpeech.speak(
+                                        displayedMessage,
+                                        TextToSpeech.QUEUE_FLUSH,
+                                        null,
+                                        "messageId"
+                                    )
+                                    
+                                    // Set a timeout in case the listener doesn't trigger
+                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                        if (isSpeaking) {
+                                            isSpeaking = false
+                                        }
+                                    }, displayedMessage.length * 100L + 3000L) // Rough estimate of speech duration plus buffer
+                                } else {
+                                    Toast.makeText(context, "Text-to-speech language not supported", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        } else if (isSpeaking) {
+                            // Stop speech if already speaking
+                            tts?.stop()
+                            isSpeaking = false
+                        }
+                    },
+                    enabled = displayedMessage.isNotEmpty() && displayedMessage != "Message appears here",
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(60.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .scale(if (isSpeaking) speakerScale else 1f)
+                                .background(
+                                    color = if (displayedMessage.isNotEmpty() && displayedMessage != "Message appears here") {
+                                        if (isSpeaking) Color(0xFF28A745) else Color(0xFFE6F0FF)
+                                    } else {
+                                        Color(0xFFE0E0E0) // Disabled gray color
+                                    },
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_speaker), // You'll need to add this icon
+                                contentDescription = "Text to Speech",
+                                tint = if (displayedMessage.isNotEmpty() && displayedMessage != "Message appears here") {
+                                    if (isSpeaking) Color.White else Color(0xFF007AFF)
+                                } else {
+                                    Color.Gray // Disabled icon color
+                                },
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Text(
+                            text = if (isSpeaking) "Speaking" else "Speak",
+                            fontSize = 12.sp,
+                            color = if (displayedMessage.isNotEmpty() && displayedMessage != "Message appears here") {
+                                if (isSpeaking) Color(0xFF28A745) else Color(0xFF6C757D)
+                            } else {
+                                Color.Gray // Disabled text color
+                            },
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
 
-                // Favorites button with improved spacing
+                // Favorites button
                 IconButton(
                     onClick = {
                         if (displayedMessage.isNotEmpty() && displayedMessage != "Message appears here") {
@@ -343,6 +488,36 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                                 )
                             }
                     )
+                    
+                    // Speaking indicator
+                    if (isSpeaking) {
+                        Card(
+                            modifier = Modifier
+                                .padding(top = 16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color(0xFF28A745)
+                            ),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_speaker),
+                                    contentDescription = "Speaking",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Speaking...",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
+                            }
+                        }
+                    }
                     
                     // Show recording duration if listening
                     if (isListening) {

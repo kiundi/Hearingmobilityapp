@@ -37,10 +37,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,15 +71,29 @@ fun ReportEmergencyScreen(
     var showContactSelection by remember { mutableStateOf(false) }
     var finalMessage by remember { mutableStateOf("") }
     
+    // Selected contact and messaging states
+    var selectedContact by remember { mutableStateOf<EmergencyContact?>(null) }
+    var showMessagingAppSelection by remember { mutableStateOf(false) }
+    
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Report Emergency") },
+                title = { 
+                    Text(
+                        "Report Emergency",
+                        style = TextStyle(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = Color.Black
+                        )
+                    ) 
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
+                            tint = Color(0xFF007AFF)
                         )
                     }
                 }
@@ -95,14 +112,19 @@ fun ReportEmergencyScreen(
                 text = "Select Emergency Message",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 16.dp)
+                color = Color.Black,
+                modifier = Modifier
+                    .padding(bottom = 16.dp)
+                    .align(Alignment.Start)
             )
             
             Text(
                 text = "Choose a pre-written message or write your own:",
                 fontSize = 16.sp,
-                color = Color.Gray,
-                modifier = Modifier.padding(bottom = 16.dp)
+                color = Color(0xFF6C757D),
+                modifier = Modifier
+                    .padding(bottom = 16.dp)
+                    .align(Alignment.Start)
             )
             
             // Pre-defined emergency messages
@@ -128,7 +150,9 @@ fun ReportEmergencyScreen(
                     color = if (selectedMessageIndex == null && customMessage.isNotEmpty()) 
                         Color(0xFF007AFF) else Color.LightGray
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                shape = RoundedCornerShape(12.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
                 Column(
                     modifier = Modifier
@@ -138,7 +162,8 @@ fun ReportEmergencyScreen(
                     Text(
                         text = "Other (Type your own message)",
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Black
                     )
                     
                     Spacer(modifier = Modifier.height(8.dp))
@@ -150,7 +175,14 @@ fun ReportEmergencyScreen(
                             selectedMessageIndex = null
                         },
                         label = { Text("Type your emergency message") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF007AFF),
+                            unfocusedBorderColor = Color.LightGray,
+                            focusedLabelColor = Color(0xFF007AFF),
+                            unfocusedLabelColor = Color(0xFF6C757D)
+                        )
                     )
                 }
             }
@@ -169,9 +201,18 @@ fun ReportEmergencyScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
-                enabled = selectedMessageIndex != null || customMessage.isNotEmpty()
+                enabled = selectedMessageIndex != null || customMessage.isNotEmpty(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF007AFF),
+                    disabledContainerColor = Color(0xFFADD8E6)
+                )
             ) {
-                Text("Continue")
+                Text(
+                    "Continue",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -183,14 +224,14 @@ fun ReportEmergencyScreen(
         if (emergencyContacts.isEmpty()) {
             AlertDialog(
                 onDismissRequest = { showContactSelection = false },
-                title = { Text("No Emergency Contacts") },
+                title = { Text("No Emergency Contacts", fontWeight = FontWeight.Bold) },
                 text = { Text("You haven't added any emergency contacts yet. Please add emergency contacts first.") },
                 confirmButton = {
                     TextButton(onClick = { 
                         showContactSelection = false
                         navController.navigate("emergency_contacts")
                     }) {
-                        Text("Add Contacts")
+                        Text("Add Contacts", color = Color(0xFF007AFF))
                     }
                 },
                 dismissButton = {
@@ -212,13 +253,9 @@ fun ReportEmergencyScreen(
                             EmergencyContactSelectionItem(
                                 contact = contact,
                                 onClick = {
-                                    // Open SMS app with pre-filled message
-                                    val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
-                                        data = Uri.parse("smsto:${contact.phoneNumber}")
-                                        putExtra("sms_body", finalMessage)
-                                    }
-                                    context.startActivity(smsIntent)
+                                    selectedContact = contact
                                     showContactSelection = false
+                                    showMessagingAppSelection = true
                                 }
                             )
                             Spacer(modifier = Modifier.height(8.dp))
@@ -233,6 +270,70 @@ fun ReportEmergencyScreen(
                 }
             )
         }
+    }
+    
+    // Messaging app selection dialog
+    if (showMessagingAppSelection && selectedContact != null) {
+        val messageToSend = finalMessage
+        val phoneNumber = selectedContact!!.phoneNumber
+        
+        AlertDialog(
+            onDismissRequest = { showMessagingAppSelection = false },
+            title = { Text("Send via") },
+            text = { 
+                Column {
+                    Text("Choose how to send your emergency message")
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { 
+                    showMessagingAppSelection = false
+                    // Open SMS app with pre-filled message
+                    val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
+                        data = Uri.parse("smsto:$phoneNumber")
+                        putExtra("sms_body", messageToSend)
+                    }
+                    context.startActivity(smsIntent)
+                }) {
+                    Text("SMS/Messages")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    showMessagingAppSelection = false
+                    // Open WhatsApp with pre-filled message
+                    try {
+                        // Format phone number (remove any spaces, dashes, etc.)
+                        val formattedNumber = phoneNumber.replace(Regex("[^0-9+]"), "")
+                        
+                        // WhatsApp deep link
+                        val whatsappIntent = Intent(Intent.ACTION_VIEW).apply {
+                            data = Uri.parse("https://api.whatsapp.com/send?phone=$formattedNumber&text=${Uri.encode(messageToSend)}")
+                            `package` = "com.whatsapp"
+                        }
+                        context.startActivity(whatsappIntent)
+                    } catch (e: Exception) {
+                        // WhatsApp not installed or other error
+                        val toast = android.widget.Toast.makeText(
+                            context, 
+                            "WhatsApp not installed or unavailable", 
+                            android.widget.Toast.LENGTH_SHORT
+                        )
+                        toast.show()
+                        
+                        // Fall back to SMS
+                        val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
+                            data = Uri.parse("smsto:$phoneNumber")
+                            putExtra("sms_body", messageToSend)
+                        }
+                        context.startActivity(smsIntent)
+                    }
+                }) {
+                    Text("WhatsApp")
+                }
+            }
+        )
     }
 }
 

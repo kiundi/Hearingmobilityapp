@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -24,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,11 +57,13 @@ fun AccountScreen(
     val currentUser by userViewModel.currentUser.collectAsState()
     val scope = rememberCoroutineScope()
     var showLogoutDialog by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF2F2F7))
+            .background(Color.White)
+            .verticalScroll(scrollState)
             .padding(16.dp)
     ) {
         // Profile Header
@@ -71,7 +77,7 @@ fun AccountScreen(
                 modifier = Modifier
                     .size(80.dp)
                     .clip(CircleShape)
-                    .background(Color.LightGray)
+                    .background(Color(0xFFEEEEEE))
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.account_icon),
@@ -98,7 +104,7 @@ fun AccountScreen(
             }
         }
 
-        Divider(color = Color(0xFF6C757D), thickness = 1.dp)
+        Divider(color = Color(0xFFEEEEEE), thickness = 1.dp)
         Spacer(modifier = Modifier.height(16.dp))
 
         // Emergency Contacts Section
@@ -106,15 +112,18 @@ fun AccountScreen(
             text = "Emergency Contacts",
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(vertical = 8.dp)
+            modifier = Modifier.padding(vertical = 8.dp),
+            color = Color.Black
         )
 
         currentUser?.emergencyContacts?.forEach { contact ->
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    .padding(vertical = 8.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
                 Column(
                     modifier = Modifier
@@ -124,12 +133,13 @@ fun AccountScreen(
                     Text(
                         text = contact.name,
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Black
                     )
                     Text(
                         text = contact.phoneNumber,
                         fontSize = 14.sp,
-                        color = Color.Gray
+                        color = Color(0xFF6C757D)
                     )
                     if (contact.isPrimary) {
                         Text(
@@ -146,9 +156,15 @@ fun AccountScreen(
             onClick = { navController.navigate("emergency_contacts") },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp)
+                .padding(vertical = 8.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF)),
+            shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Manage Emergency Contacts")
+            Text(
+                "Manage Emergency Contacts",
+                color = Color.White,
+                fontWeight = FontWeight.Medium
+            )
         }
 
         // Emergency Report Button
@@ -157,13 +173,18 @@ fun AccountScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30)) // Red color for emergency
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30)),
+            shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Report Emergency")
+            Text(
+                "Report Emergency",
+                color = Color.White,
+                fontWeight = FontWeight.Medium
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        Divider(color = Color(0xFF6C757D), thickness = 1.dp)
+        Divider(color = Color(0xFFEEEEEE), thickness = 1.dp)
         Spacer(modifier = Modifier.height(16.dp))
 
         // Logout Button
@@ -172,9 +193,14 @@ fun AccountScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+            shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Log Out", color = Color.White)
+            Text(
+                "Log Out", 
+                color = Color.White,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 
@@ -194,15 +220,14 @@ fun AccountScreen(
                         }
                         showLogoutDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
                     Text("Log Out")
                 }
             },
             dismissButton = {
-                Button(
-                    onClick = { showLogoutDialog = false }
-                ) {
+                TextButton(onClick = { showLogoutDialog = false }) {
                     Text("Cancel")
                 }
             }

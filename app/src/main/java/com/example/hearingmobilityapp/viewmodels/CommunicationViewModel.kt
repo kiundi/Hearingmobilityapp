@@ -1,19 +1,19 @@
 package com.example.hearingmobilityapp.viewmodels
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
+import com.example.hearingmobilityapp.SavedMessage
+import com.example.hearingmobilityapp.auth.AuthService
+import com.example.hearingmobilityapp.messages.MessageService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import com.example.hearingmobilityapp.SavedMessage
 
-class CommunicationViewModel : ViewModel() {
+class CommunicationViewModel(application: Application) : AndroidViewModel(application) {
     private val _message = MutableLiveData<String>()
     val message: LiveData<String> = _message
 
@@ -23,12 +23,33 @@ class CommunicationViewModel : ViewModel() {
     private val _savedMessages = MutableStateFlow<List<SavedMessage>>(emptyList())
     val savedMessages: StateFlow<List<SavedMessage>> = _savedMessages
 
-    private val firestore = FirebaseFirestore.getInstance()
-    private val auth = FirebaseAuth.getInstance()
-    private var savedMessagesListener: ListenerRegistration? = null
+    // Replace Firebase services with our SQLite-based services
+    private val authService = AuthService(application.applicationContext)
+    private val messageService = MessageService(application.applicationContext)
+
+    // Track authentication state
+    private val _isUserAuthenticated = MutableStateFlow(false)
+    val isUserAuthenticated: StateFlow<Boolean> = _isUserAuthenticated
 
     init {
-        fetchSavedMessages()
+        // Observe authentication state
+        viewModelScope.launch {
+            authService.currentUser.collectLatest { user ->
+                _isUserAuthenticated.value = user != null
+                
+                // If user authenticated, load their messages
+                if (user != null) {
+                    messageService.loadSavedMessages(user.uid)
+                }
+            }
+        }
+
+        // Observe saved messages
+        viewModelScope.launch {
+            messageService.savedMessages.collectLatest { messages ->
+                _savedMessages.value = messages
+            }
+        }
     }
 
     fun updateMessage(newMessage: String) {
@@ -52,69 +73,88 @@ class CommunicationViewModel : ViewModel() {
     }
 
     private fun getCurrentUserId(): String? {
-        return auth.currentUser?.uid
+        return authService.currentUser.value?.uid
     }
 
-    private fun getSavedMessagesCollection() =
-        firestore.collection("users").document(getCurrentUserId() ?: "").collection("savedMessages")
-
     fun saveMessage(message: String) {
-        getCurrentUserId()?.let { userId ->
-            viewModelScope.launch {
-                try {
-                    getSavedMessagesCollection().add(hashMapOf("text" to message)).await()
-                    // fetchSavedMessages() // Listener should handle updates
-                } catch (e: Exception) {
-                    // Handle error
-                    println("Error saving message: ${e.message}")
-                }
+        val userId = getCurrentUserId() ?: return
+        
+        viewModelScope.launch {
+            try {
+                messageService.saveMessage(message, userId)
+            } catch (e: Exception) {
+                // Handle error
+                println("Error saving message: ${e.message}")
             }
         }
     }
 
     fun removeSavedMessage(message: String) {
-        getCurrentUserId()?.let { userId ->
-            viewModelScope.launch {
-                try {
-                    val querySnapshot = getSavedMessagesCollection()
-                        .whereEqualTo("text", message)
-                        .get()
-                        .await()
-
-                    for (document in querySnapshot.documents) {
-                        document.reference.delete().await()
-                    }
-                    // fetchSavedMessages() // Listener should handle updates
-                } catch (e: Exception) {
-                    // Handle error
-                    println("Error removing message: ${e.message}")
+        val userId = getCurrentUserId() ?: return
+        
+        viewModelScope.launch {
+            try {
+                // Find the message ID by text
+                val messageId = _savedMessages.value.find { it.text == message }?.id
+                if (messageId != null) {
+                    messageService.deleteMessage(messageId, userId)
                 }
+            } catch (e: Exception) {
+                // Handle error
+                println("Error removing message: ${e.message}")
             }
         }
     }
-
-    private fun fetchSavedMessages() {
-        getCurrentUserId()?.let { userId ->
-            savedMessagesListener?.remove() // Remove previous listener
-
-            savedMessagesListener = getSavedMessagesCollection()
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        // Handle error
-                        println("Listen failed: $error")
-                        return@addSnapshotListener
-                    }
-
-                    val messages = snapshot?.documents?.map { document ->
-                        SavedMessage(document.id, document.getString("text") ?: "")
-                    } ?: emptyList()
-                    _savedMessages.value = messages
+    
+    fun addToFavorites(message: String): Boolean {
+        val userId = getCurrentUserId() ?: return false
+        
+        viewModelScope.launch {
+            try {
+                // Find the message ID by text
+                val messageId = _savedMessages.value.find { it.text == message }?.id
+                if (messageId != null) {
+                    messageService.updateMessageFavorite(messageId, true, userId)
                 }
+            } catch (e: Exception) {
+                println("Error adding to favorites: ${e.message}")
+            }
         }
+        return true
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        savedMessagesListener?.remove() // Remove listener when ViewModel is cleared
+    fun removeFromFavorites(message: String): Boolean {
+        val userId = getCurrentUserId() ?: return false
+        
+        viewModelScope.launch {
+            try {
+                // Find the message ID by text
+                val messageId = _savedMessages.value.find { it.text == message }?.id
+                if (messageId != null) {
+                    messageService.updateMessageFavorite(messageId, false, userId)
+                }
+            } catch (e: Exception) {
+                println("Error removing from favorites: ${e.message}")
+            }
+        }
+        return true
+    }
+
+    fun isMessageFavorite(message: String, callback: (Boolean) -> Unit) {
+        if (!_isUserAuthenticated.value) {
+            callback(false)
+            return
+        }
+        
+        viewModelScope.launch {
+            try {
+                // Find the message in saved messages
+                val savedMessage = _savedMessages.value.find { it.text == message }
+                callback(savedMessage?.isFavorite ?: false)
+            } catch (e: Exception) {
+                println("Error checking if message is favorite: ${e.message}")
+                callback(false)
+            }
+        }
     }
 }

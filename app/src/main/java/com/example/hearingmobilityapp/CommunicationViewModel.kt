@@ -1,26 +1,20 @@
 package com.example.hearingmobilityapp
 
 import android.app.Application
-import android.content.ContentValues.TAG
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
+import com.example.hearingmobilityapp.auth.AuthService
+import com.example.hearingmobilityapp.messages.MessageService
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.delay
 import java.util.UUID
-
-data class SavedMessages(val id: String, val text: String, val isFavorite: Boolean = false)
-
 
 class CommunicationViewModel(application: Application) : AndroidViewModel(application) {
     private val _message = MutableLiveData<String>()
@@ -33,11 +27,11 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     private val _isListening = MutableStateFlow(false)
     val isListening: StateFlow<Boolean> = _isListening
 
-    private val _savedMessages = MutableStateFlow<List<SavedMessages>>(emptyList())
-    val savedMessages: StateFlow<List<SavedMessages>> = _savedMessages
+    private val _savedMessages = MutableStateFlow<List<SavedMessage>>(emptyList())
+    val savedMessages: StateFlow<List<SavedMessage>> = _savedMessages
 
-    private val _favoriteMessages = MutableStateFlow<List<SavedMessages>>(emptyList())
-    val favoriteMessages: StateFlow<List<SavedMessages>> = _favoriteMessages
+    private val _favoriteMessages = MutableStateFlow<List<SavedMessage>>(emptyList())
+    val favoriteMessages: StateFlow<List<SavedMessage>> = _favoriteMessages
 
     private val _showAddedToFavoritesMessage = MutableStateFlow(false)
     val showAddedToFavoritesMessage: StateFlow<Boolean> = _showAddedToFavoritesMessage
@@ -71,10 +65,9 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     private val _modelInitStatus = MutableStateFlow(ModelInitStatus.NOT_INITIALIZED)
     val modelInitStatus: StateFlow<ModelInitStatus> = _modelInitStatus
 
-    private val firestore = FirebaseFirestore.getInstance()
-    private val auth = FirebaseAuth.getInstance()
-    private var savedMessagesListener: ListenerRegistration? = null
-    private var favoriteMessagesListener: ListenerRegistration? = null
+    // Replace Firebase with our services
+    private val authService = AuthService(application.applicationContext)
+    private val messageService = MessageService(application.applicationContext)
 
     // Add a state to track if user is authenticated
     private val _isUserAuthenticated = MutableStateFlow(false)
@@ -88,15 +81,31 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     val lastDestination: StateFlow<String> = _lastDestination
 
     init {
-        // Check if user is already signed in
-        checkAuthState()
+        // Observe authentication state
+        viewModelScope.launch {
+            authService.currentUser.collectLatest { user ->
+                _isUserAuthenticated.value = user != null
+            }
+        }
+
+        // Observe saved messages
+        viewModelScope.launch {
+            messageService.savedMessages.collectLatest { messages ->
+                _savedMessages.value = messages
+                
+                // Update favorites
+                _favoriteMessages.value = messages.filter { it.isFavorite }
+            }
+        }
 
         // Only fetch messages if user is authenticated
         viewModelScope.launch {
             isUserAuthenticated.collect { isAuthenticated ->
                 if (isAuthenticated) {
-                    fetchSavedMessages()
-                    fetchFavoriteMessages()
+                    val userId = authService.currentUser.value?.uid
+                    if (userId != null) {
+                        messageService.loadSavedMessages(userId)
+                    }
                 }
             }
         }
@@ -183,23 +192,6 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    private fun checkAuthState() {
-        val currentUser = auth.currentUser
-        if (currentUser == null) {
-            // If no user is signed in, sign in anonymously
-            viewModelScope.launch {
-                try {
-                    auth.signInAnonymously().await()
-                    _isUserAuthenticated.value = true
-                } catch (e: Exception) {
-                    println("Error signing in anonymously: ${e.message}")
-                }
-            }
-        } else {
-            _isUserAuthenticated.value = true
-        }
-    }
-
     fun updateMessage(newMessage: String) {
         _message.value = newMessage
     }
@@ -233,235 +225,188 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 updateMessage(transcribedText)
                 // No longer save transcribed message to database
                 Log.d(TAG, "Updated message with transcribed text: '$transcribedText'")
+                
+                // Auto-save the message if it's meaningful (more than just a few characters)
+                if (transcribedText.length > 5) {
+                    saveMessage(transcribedText)
+                }
             } else {
                 Log.e(TAG, "No transcribed text available")
+                // If no transcribed text available but we have partial text, use that instead
+                val partialText = voiceRecognitionManager.partialText.value
+                if (partialText.isNotEmpty()) {
+                    updateMessage(partialText)
+                    Log.d(TAG, "Used partial text instead: '$partialText'")
+                }
             }
 
             _isListening.value = false
         }
     }
 
-    private fun getCurrentUserId(): String? {
-        return auth.currentUser?.uid
-    }
-
-    private fun getSavedMessagesCollection() =
-        firestore.collection("users").document(getCurrentUserId() ?: "").collection("savedMessages")
-        
-    private fun getFavoriteMessagesCollection() =
-        firestore.collection("users").document(getCurrentUserId() ?: "").collection("favoriteMessages")
-
     fun saveMessage(message: String) {
-        // Simply update the message state without saving to Firebase
-        // Messages will only be saved when added to favorites
-        updateMessage(message)
-    }
-    
-    fun addToFavorites(message: String) {
-        if (!_isUserAuthenticated.value) {
-            checkAuthState() // Try to authenticate if not already
-            return
-        }
-        
-        getCurrentUserId()?.let { userId ->
-            viewModelScope.launch {
-                try {
-                    // First check if the message already exists in saved messages
-                    val querySnapshot = getSavedMessagesCollection()
-                        .whereEqualTo("text", message)
-                        .get()
-                        .await()
-                    
-                    // If it exists, update it to mark as favorite
-                    if (!querySnapshot.isEmpty) {
-                        for (document in querySnapshot.documents) {
-                            document.reference.update("isFavorite", true).await()
-                        }
-                    } else {
-                        // If it doesn't exist in saved messages, add it
-                        getSavedMessagesCollection().add(hashMapOf(
-                            "text" to message,
-                            "isFavorite" to true
-                        )).await()
-                    }
-                    
-                    // Also add to favorites collection for easier querying
-                    getFavoriteMessagesCollection().add(hashMapOf("text" to message)).await()
+        viewModelScope.launch {
+            if (message.isBlank()) {
+                Log.e(TAG, "Cannot save empty message")
+                return@launch
+            }
 
-                    // Show notification
-                    _showAddedToFavoritesMessage.value = true
-                    viewModelScope.launch {
-                        kotlinx.coroutines.delay(2000)
-                        _showAddedToFavoritesMessage.value = false
-                    }
+            val userId = authService.currentUser.value?.uid
+            if (userId == null) {
+                Log.e(TAG, "Cannot save message, user not authenticated")
+                return@launch
+            }
 
-                } catch (e: Exception) {
-                    println("Error adding to favorites: ${e.message}")
-                }
+            try {
+                val messageId = messageService.saveMessage(message, userId)
+                Log.d(TAG, "Message saved with ID: $messageId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving message: ${e.message}", e)
             }
         }
     }
 
-    fun removeFromFavorites(message: String) {
-        if (!_isUserAuthenticated.value) {
-            checkAuthState() // Try to authenticate if not already
-            return
-        }
-
-        getCurrentUserId()?.let { userId ->
-            viewModelScope.launch {
-                try {
-                    // Update saved messages to mark as not favorite
-                    val savedQuerySnapshot = getSavedMessagesCollection()
-                        .whereEqualTo("text", message)
-                        .get()
-                        .await()
-
-                    for (document in savedQuerySnapshot.documents) {
-                        document.reference.update("isFavorite", false).await()
-                    }
-                    
-                    // Remove from favorites collection
-                    val favQuerySnapshot = getFavoriteMessagesCollection()
-                        .whereEqualTo("text", message)
-                        .get()
-                        .await()
-                    
-                    for (document in favQuerySnapshot.documents) {
-                        document.reference.delete().await()
-                    }
-                    
-                    // Show notification
-                    _showRemovedFromFavoritesMessage.value = true
-                    viewModelScope.launch {
-                        kotlinx.coroutines.delay(2000)
-                        _showRemovedFromFavoritesMessage.value = false
-                    }
-                    
-                } catch (e: Exception) {
-                    println("Error removing from favorites: ${e.message}")
-                }
-            }
-        }
-    }
-    
-    // Function to completely remove a saved message
     fun removeSavedMessage(message: String) {
-        if (!_isUserAuthenticated.value) {
-            checkAuthState() // Try to authenticate if not already
-            return
-        }
-        
-        getCurrentUserId()?.let { userId ->
-            viewModelScope.launch {
-                try {
-                    // First check if it's a favorite and remove from favorites collection if needed
-                    val favQuerySnapshot = getFavoriteMessagesCollection()
-                        .whereEqualTo("text", message)
-                        .get()
-                        .await()
-                    
-                    for (document in favQuerySnapshot.documents) {
-                        document.reference.delete().await()
+        viewModelScope.launch {
+            try {
+                // Find the message ID by text
+                val messageId = _savedMessages.value.find { it.text == message }?.id
+                if (messageId != null) {
+                    val userId = authService.currentUser.value?.uid
+                    if (userId != null) {
+                        messageService.deleteMessage(messageId, userId)
+                        Log.d(TAG, "Removed message with ID: $messageId")
                     }
-                    
-                    // Then remove from saved messages collection
-                    val savedQuerySnapshot = getSavedMessagesCollection()
-                        .whereEqualTo("text", message)
-                        .get()
-                        .await()
-                    
-                    for (document in savedQuerySnapshot.documents) {
-                        document.reference.delete().await()
-                    }
-                    
-                    // Update the local lists
-                    fetchSavedMessages()
-                    fetchFavoriteMessages()
-                    
-                } catch (e: Exception) {
-                    println("Error removing saved message: ${e.message}")
+                } else {
+                    Log.e(TAG, "Could not find message to remove: $message")
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing message: ${e.message}", e)
             }
         }
+    }
+
+    fun updateLastRoute(source: String, destination: String) {
+        _lastSource.value = source
+        _lastDestination.value = destination
+    }
+    
+    fun addToFavorites(message: String): Boolean {
+        if (!_isUserAuthenticated.value) {
+            return false
+        }
+        
+        val userId = authService.currentUser.value?.uid
+        if (userId == null) {
+            Log.e(TAG, "Cannot add to favorites, user not authenticated")
+            return false
+        }
+
+        viewModelScope.launch {
+            try {
+                // Check if message already exists in saved messages
+                var messageId = _savedMessages.value.find { it.text == message }?.id
+                
+                // If message doesn't exist, save it first
+                if (messageId == null) {
+                    Log.d(TAG, "Message doesn't exist in saved messages, saving first: '$message'")
+                    messageId = messageService.saveMessage(message, userId)
+                    
+                    // Wait for a moment to ensure message is saved and state is updated
+                    delay(500)
+                    
+                    // Refresh messageId after saving
+                    messageId = _savedMessages.value.find { it.text == message }?.id
+                }
+                
+                if (messageId != null) {
+                    val success = messageService.updateMessageFavorite(messageId, true, userId)
+                    if (success) {
+                        // Show notification
+                        _showAddedToFavoritesMessage.value = true
+                        viewModelScope.launch {
+                            delay(2000)
+                            _showAddedToFavoritesMessage.value = false
+                        }
+                        Log.d(TAG, "Added message to favorites successfully: '$message'")
+                    } else {
+                        Log.e(TAG, "Failed to update favorite status for message: '$message'")
+                    }
+                } else {
+                    Log.e(TAG, "Could not find message to add to favorites: '$message'")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error adding to favorites: ${e.message}", e)
+            }
+        }
+        return true
+    }
+
+    fun removeFromFavorites(message: String): Boolean {
+        if (!_isUserAuthenticated.value) {
+            return false
+        }
+
+        val userId = authService.currentUser.value?.uid
+        if (userId == null) {
+            Log.e(TAG, "Cannot remove from favorites, user not authenticated")
+            return false
+        }
+
+        viewModelScope.launch {
+            try {
+                // Find the message ID by text
+                val messageId = _savedMessages.value.find { it.text == message }?.id
+                if (messageId != null) {
+                    val success = messageService.updateMessageFavorite(messageId, false, userId)
+                    if (success) {
+                        // Show notification
+                        _showRemovedFromFavoritesMessage.value = true
+                        viewModelScope.launch {
+                            delay(2000)
+                            _showRemovedFromFavoritesMessage.value = false
+                        }
+                    }
+                } else {
+                    Log.e(TAG, "Could not find message to remove from favorites: $message")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing from favorites: ${e.message}", e)
+            }
+        }
+        return true
+    }
+    
+    private fun getCurrentUserId(): String? {
+        return authService.currentUser.value?.uid
     }
 
     fun isMessageFavorite(message: String, callback: (Boolean) -> Unit) {
         if (!_isUserAuthenticated.value) {
             callback(false)
-            checkAuthState() // Try to authenticate if not already
             return
         }
         
-        getCurrentUserId()?.let { userId ->
-            viewModelScope.launch {
-                try {
-                    val querySnapshot = getFavoriteMessagesCollection()
-                        .whereEqualTo("text", message)
-                        .get()
-                        .await()
-                    
-                    callback(!querySnapshot.isEmpty)
-                } catch (e: Exception) {
-                    callback(false)
-                    println("Error checking if message is favorite: ${e.message}")
-                }
-            }
-        } ?: callback(false)
-    }
-
-    private fun fetchSavedMessages() {
-        getCurrentUserId()?.let { userId ->
-            savedMessagesListener?.remove() // Remove previous listener
-
-            savedMessagesListener = getSavedMessagesCollection()
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        // Handle error
-                        println("Listen failed: $error")
-                        return@addSnapshotListener
-                    }
-
-                    val messages = snapshot?.documents?.map { document ->
-                        SavedMessages(
-                            id = document.id, 
-                            text = document.getString("text") ?: "",
-                            isFavorite = document.getBoolean("isFavorite") ?: false
-                        )
-                    } ?: emptyList()
-                    _savedMessages.value = messages
-                }
+        val userId = authService.currentUser.value?.uid
+        if (userId == null) {
+            callback(false)
+            return
         }
-    }
-    
-    private fun fetchFavoriteMessages() {
-        getCurrentUserId()?.let { userId ->
-            favoriteMessagesListener?.remove() // Remove previous listener
 
-            favoriteMessagesListener = getFavoriteMessagesCollection()
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        // Handle error
-                        println("Listen failed for favorites: $error")
-                        return@addSnapshotListener
-                    }
-
-                    val messages = snapshot?.documents?.map { document ->
-                        SavedMessages(
-                            id = document.id, 
-                            text = document.getString("text") ?: "",
-                            isFavorite = true
-                        )
-                    } ?: emptyList()
-                    _favoriteMessages.value = messages
-                }
+        viewModelScope.launch {
+            try {
+                // Find the message in saved messages
+                val savedMessage = _savedMessages.value.find { it.text == message }
+                callback(savedMessage?.isFavorite ?: false)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking if message is favorite: ${e.message}", e)
+                callback(false)
+            }
         }
     }
 
     override fun onCleared() {
         super.onCleared()
-        savedMessagesListener?.remove() // Remove listener when ViewModel is cleared
-        favoriteMessagesListener?.remove()
         voiceRecognitionManager.release() // Release voice recognition resources
     }
 
@@ -503,7 +448,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 "Please provide both source and destination locations."
             } else {
                 // Wait for database to be initialized
-                gtfsHelper.isDatabaseInitialized.first { it }
+                val isInitialized = gtfsHelper.isDatabaseInitialized.first()
                 
                 val routeInfo = gtfsHelper.getRouteInfo(source, destination)
                 routeInfo?.let { "Route: ${it.routeName} (${it.routeDescription})\nNext departure: ${it.nextDeparture}" } 
@@ -523,7 +468,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 "Please provide a stop name."
             } else {
                 // Wait for database to be initialized
-                gtfsHelper.isDatabaseInitialized.first { it }
+                val isInitialized = gtfsHelper.isDatabaseInitialized.first()
                 
                 val stopInfo = gtfsHelper.getStopInfo(stopName)
                 stopInfo?.let { "Next arrivals at $stopName:\n${it.arrivals.joinToString("\n")}" } 
@@ -543,7 +488,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 Pair(0.0, 0.0)
             } else {
                 // Wait for database to be initialized
-                gtfsHelper.isDatabaseInitialized.first { it }
+                val isInitialized = gtfsHelper.isDatabaseInitialized.first()
                 
                 gtfsHelper.getStopCoordinates(stopName) ?: Pair(0.0, 0.0)
             }
@@ -561,7 +506,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 emptyList()
             } else {
                 // Wait for database to be initialized
-                gtfsHelper.isDatabaseInitialized.first { it }
+                val isInitialized = gtfsHelper.isDatabaseInitialized.first()
                 
                 gtfsHelper.getRoutePoints(source, destination)
             }
@@ -579,7 +524,7 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 "Please provide both source and destination locations."
             } else {
                 // Wait for database to be initialized
-                gtfsHelper.isDatabaseInitialized.first { it }
+                val isInitialized = gtfsHelper.isDatabaseInitialized.first()
                 
                 gtfsHelper.getRouteTime(source, destination)
             }
@@ -601,6 +546,11 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     }
 
     // isDatabaseReady property is already defined above
+
+    // Add this function to handle auth state checks
+    private fun checkAuthState(): Boolean {
+        return _isUserAuthenticated.value
+    }
 }
 
 enum class ModelInitStatus {

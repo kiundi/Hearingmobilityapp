@@ -106,7 +106,7 @@ fun SavedMessagesScreen(
 
 @Composable
 fun MessageItem(
-    message: SavedMessages,
+    message: SavedMessage,
     onMessageClick: () -> Unit,
     onFavoriteToggle: () -> Unit
 ) {

@@ -17,11 +17,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,12 +87,22 @@ fun EmergencyContactsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Emergency Contacts") },
+                title = { 
+                    Text(
+                        "Emergency Contacts",
+                        style = TextStyle(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = Color.Black
+                        )
+                    ) 
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
+                            tint = Color(0xFF007AFF)
                         )
                     }
                 }
@@ -110,7 +123,9 @@ fun EmergencyContactsScreen(
                                 contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
                             }
                         }
-                    }
+                    },
+                    containerColor = Color(0xFF007AFF),
+                    contentColor = Color.White
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Add Contact")
                 }
@@ -129,22 +144,30 @@ fun EmergencyContactsScreen(
                 Text(
                     text = "Please add ${if (contactCount == 0) "two emergency contacts" else "one more emergency contact"}",
                     fontSize = 16.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    color = Color(0xFF6C757D),
+                    modifier = Modifier
+                        .padding(bottom = 16.dp)
+                        .align(Alignment.Start)
                 )
                 
                 Text(
                     text = "You need to add ${2 - contactCount} more ${if (2 - contactCount == 1) "contact" else "contacts"} to continue",
                     fontSize = 14.sp,
                     color = Color(0xFF007AFF),
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    modifier = Modifier
+                        .padding(bottom = 16.dp)
+                        .align(Alignment.Start),
+                    fontWeight = FontWeight.Medium
                 )
             } else {
                 Text(
                     text = "Emergency contacts added successfully!",
                     fontSize = 16.sp,
                     color = Color(0xFF28A745),
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    modifier = Modifier
+                        .padding(bottom = 16.dp)
+                        .align(Alignment.Start),
+                    fontWeight = FontWeight.Medium
                 )
             }
             
@@ -182,9 +205,15 @@ fun EmergencyContactsScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
                 ) {
-                    Text(if (previousRoute == "account") "Done" else "Continue")
+                    Text(
+                        if (previousRoute == "account") "Done" else "Continue",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
         }
@@ -215,8 +244,11 @@ fun EmergencyContactItem(
     onDelete: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        modifier = Modifier
+            .fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
     ) {
         Row(
             modifier = Modifier
@@ -225,26 +257,33 @@ fun EmergencyContactItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
                 Text(
                     text = contact.name,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black
                 )
                 Text(
                     text = contact.phoneNumber,
-                    fontSize = 16.sp,
-                    color = Color.Gray
+                    fontSize = 14.sp,
+                    color = Color(0xFF6C757D)
                 )
                 if (contact.isPrimary) {
                     Text(
                         text = "Primary Contact",
-                        fontSize = 14.sp,
-                        color = Color(0xFF007AFF)
+                        fontSize = 12.sp,
+                        color = Color(0xFF007AFF),
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
-            IconButton(onClick = onDelete) {
+            
+            IconButton(
+                onClick = onDelete
+            ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Delete Contact",

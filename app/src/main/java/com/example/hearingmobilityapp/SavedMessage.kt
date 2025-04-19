@@ -2,14 +2,15 @@ package com.example.hearingmobilityapp
 
 // Data class for saved messages
 data class SavedMessage(
-    val id: String,
-    val text: String,
+    val id: String = "",
+    val text: String = "",
     val routeId: String? = null,
     val routeName: String? = null,
     val routeDetails: String? = null,
     val routeStartLocation: String? = null,
     val routeEndLocation: String? = null,
-    val routeDestinationType: String? = null
+    val routeDestinationType: String? = null,
+    val isFavorite: Boolean = false
 )
 
 // Data class for saved routes with navigation information

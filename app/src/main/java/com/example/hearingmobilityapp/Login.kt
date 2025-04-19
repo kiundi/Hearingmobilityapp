@@ -5,15 +5,21 @@ import android.util.Patterns
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.*
+import androidx.compose.material.CircularProgressIndicator
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -60,8 +66,9 @@ fun LoginScreen(
     ) {
         Text(
             text = "Welcome Back",
-            fontSize = 24.sp,
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
+            color = Color.Black,
             modifier = Modifier.padding(vertical = 32.dp)
         )
 
@@ -69,10 +76,15 @@ fun LoginScreen(
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
-            label = { Text("Email") },
+            label = { Text("Email", color = Color(0xFF6C757D)) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF007AFF),
+                unfocusedBorderColor = Color.LightGray,
+                cursorColor = Color(0xFF007AFF)
+            )
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -81,11 +93,16 @@ fun LoginScreen(
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
-            label = { Text("Password") },
+            label = { Text("Password", color = Color(0xFF6C757D)) },
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF007AFF),
+                unfocusedBorderColor = Color.LightGray,
+                cursorColor = Color(0xFF007AFF)
+            )
         )
 
         if (errorMessage.isNotEmpty()) {
@@ -125,7 +142,13 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp),
-            enabled = !isLoading && !isAnonymousLoading
+            enabled = !isLoading && !isAnonymousLoading,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF007AFF),
+                contentColor = Color.White,
+                disabledContainerColor = Color(0xFF007AFF).copy(alpha = 0.5f)
+            ),
+            shape = RoundedCornerShape(8.dp)
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
@@ -133,7 +156,11 @@ fun LoginScreen(
                     modifier = Modifier.size(24.dp)
                 )
             } else {
-                Text("Log In")
+                Text(
+                    "Log In",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
 
@@ -162,15 +189,23 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp),
-            enabled = !isLoading && !isAnonymousLoading
+            enabled = !isLoading && !isAnonymousLoading,
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = Color(0xFF007AFF)
+            ),
+            shape = RoundedCornerShape(8.dp)
         ) {
             if (isAnonymousLoading) {
                 CircularProgressIndicator(
-                    color = MaterialTheme.colors.primary,
+                    color = Color(0xFF007AFF),
                     modifier = Modifier.size(24.dp)
                 )
             } else {
-                Text("Continue as Guest")
+                Text(
+                    "Continue as Guest",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
 
@@ -183,12 +218,14 @@ fun LoginScreen(
         ) {
             Text(
                 text = "Don't have an account? ",
-                color = Color.Gray
+                color = Color(0xFF6C757D),
+                fontSize = 14.sp
             )
             Text(
                 text = "Sign Up",
                 color = Color(0xFF007AFF),
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
             )
         }
     }
@@ -200,7 +237,6 @@ fun LoginScreenPreview() {
     val context = LocalContext.current
     val navController = NavController(context) as NavHostController
     LoginScreen(
-        navController = navController,
-        userViewModel = UserViewModel()
+        navController = navController
     )
 }

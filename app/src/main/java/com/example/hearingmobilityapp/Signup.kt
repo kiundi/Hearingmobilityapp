@@ -12,11 +12,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.Button
 import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,8 +85,9 @@ fun SignupScreen(
     ) {
         Text(
             text = "Create Account",
-            fontSize = 24.sp,
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
+            color = Color.Black,
             modifier = Modifier.padding(vertical = 32.dp)
         )
 
@@ -91,9 +95,14 @@ fun SignupScreen(
         OutlinedTextField(
             value = fullName,
             onValueChange = { fullName = it },
-            label = { Text("Full Name") },
+            label = { Text("Full Name", color = Color(0xFF6C757D)) },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF007AFF),
+                unfocusedBorderColor = Color.LightGray,
+                cursorColor = Color(0xFF007AFF)
+            )
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -102,10 +111,15 @@ fun SignupScreen(
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
-            label = { Text("Email") },
+            label = { Text("Email", color = Color(0xFF6C757D)) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF007AFF),
+                unfocusedBorderColor = Color.LightGray,
+                cursorColor = Color(0xFF007AFF)
+            )
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -114,11 +128,16 @@ fun SignupScreen(
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
-            label = { Text("Password") },
+            label = { Text("Password", color = Color(0xFF6C757D)) },
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF007AFF),
+                unfocusedBorderColor = Color.LightGray,
+                cursorColor = Color(0xFF007AFF)
+            )
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -127,11 +146,16 @@ fun SignupScreen(
         OutlinedTextField(
             value = confirmPassword,
             onValueChange = { confirmPassword = it },
-            label = { Text("Confirm Password") },
+            label = { Text("Confirm Password", color = Color(0xFF6C757D)) },
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF007AFF),
+                unfocusedBorderColor = Color.LightGray,
+                cursorColor = Color(0xFF007AFF)
+            )
         )
 
         if (errorMessage.isNotEmpty()) {
@@ -171,7 +195,13 @@ fun SignupScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp),
-            enabled = !isLoading
+            enabled = !isLoading,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF007AFF),
+                contentColor = Color.White,
+                disabledContainerColor = Color(0xFF007AFF).copy(alpha = 0.5f)
+            ),
+            shape = RoundedCornerShape(8.dp)
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
@@ -179,7 +209,11 @@ fun SignupScreen(
                     modifier = Modifier.size(24.dp)
                 )
             } else {
-                Text("Create Account")
+                Text(
+                    "Create Account",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
 
@@ -192,12 +226,14 @@ fun SignupScreen(
         ) {
             Text(
                 text = "Already have an account? ",
-                color = Color.Gray
+                color = Color(0xFF6C757D),
+                fontSize = 14.sp
             )
             Text(
                 text = "Log In",
                 color = Color(0xFF007AFF),
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
             )
         }
     }

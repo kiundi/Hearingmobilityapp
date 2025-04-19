@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.Text
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 
 @Composable
@@ -38,10 +37,9 @@ fun SplashScreen(
     
     // Launch a separate effect to check if user is signed in and initialize auth
     LaunchedEffect(Unit) {
-        // Force Firebase Auth to initialize and check authentication state
-        userViewModel.checkAuthState()
+        // Auth state is automatically checked in the UserViewModel's init block
         
-        // Wait a moment to ensure Firebase Auth has time to fully initialize
+        // Wait a moment to ensure Auth has time to fully initialize
         delay(1000)
         authInitialized.value = true
     }
@@ -53,12 +51,6 @@ fun SplashScreen(
             
             if (currentUser != null) {
                 // User is logged in, go to main screen
-                navController.navigate("main") {
-                    popUpTo(0) { inclusive = true }
-                }
-            } else if (FirebaseAuth.getInstance().currentUser != null) {
-                // FirebaseAuth says user is logged in but ViewModel hasn't loaded yet
-                // This acts as a fallback
                 navController.navigate("main") {
                     popUpTo(0) { inclusive = true }
                 }
@@ -74,22 +66,31 @@ fun SplashScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
             .background(Color(0xFFF2F2F7)),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(32.dp)
+        ) {
             Text(
                 text = "DIGITAL MATATU",
-                fontSize = 32.sp,
+                fontSize = 36.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF000000)
+                color = Color(0xFF007AFF)
             )
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             Image(
                 painter = painterResource(id = R.drawable.ic_bus),
                 contentDescription = "App Logo",
-                modifier = Modifier.height(120.dp)
+                modifier = Modifier.height(160.dp)
+            )
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = "Hearing Mobility App",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF6C757D)
             )
         }
     }
