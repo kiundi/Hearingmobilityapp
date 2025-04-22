@@ -1,6 +1,8 @@
 package com.example.hearingmobilityapp
 
 import android.app.Application
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
@@ -79,6 +81,13 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
 
     private val _lastDestination = MutableStateFlow("")
     val lastDestination: StateFlow<String> = _lastDestination
+
+    // Text-to-Speech properties
+    private var textToSpeech: TextToSpeech? = null
+    private val _isSpeaking = MutableStateFlow(false)
+    val isSpeaking: StateFlow<Boolean> = _isSpeaking
+    private val _ttsStatus = MutableStateFlow(TTSStatus.NOT_INITIALIZED)
+    val ttsStatus: StateFlow<TTSStatus> = _ttsStatus
 
     init {
         // Observe authentication state
@@ -162,6 +171,9 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
                 }
             }
         }
+
+        // Initialize TTS
+        initializeTextToSpeech()
     }
 
     private fun initializeVoiceRecognition() {
@@ -188,6 +200,25 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
             } catch (e: Exception) {
                 Log.e("CommunicationViewModel", "Exception during model initialization: ${e.message}", e)
                 _modelInitStatus.value = ModelInitStatus.FAILED
+            }
+        }
+    }
+
+    private fun initializeTextToSpeech() {
+        _ttsStatus.value = TTSStatus.INITIALIZING
+        textToSpeech = TextToSpeech(getApplication()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                val result = textToSpeech?.setLanguage(java.util.Locale.getDefault())
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    Log.e(TAG, "TTS language not supported")
+                    _ttsStatus.value = TTSStatus.FAILED
+                } else {
+                    Log.d(TAG, "TTS initialized successfully")
+                    _ttsStatus.value = TTSStatus.INITIALIZED
+                }
+            } else {
+                Log.e(TAG, "TTS initialization failed with status: $status")
+                _ttsStatus.value = TTSStatus.FAILED
             }
         }
     }
@@ -408,6 +439,11 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     override fun onCleared() {
         super.onCleared()
         voiceRecognitionManager.release() // Release voice recognition resources
+        
+        // Clean up TTS resources
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+        textToSpeech = null
     }
 
     fun saveRoute(source: String, destination: String) {
@@ -551,9 +587,86 @@ class CommunicationViewModel(application: Application) : AndroidViewModel(applic
     private fun checkAuthState(): Boolean {
         return _isUserAuthenticated.value
     }
+
+    fun speak(text: String): Boolean {
+        if (_ttsStatus.value != TTSStatus.INITIALIZED || textToSpeech == null) {
+            Log.e(TAG, "Cannot speak - TTS not initialized")
+            return false
+        }
+
+        if (text.isBlank()) {
+            Log.e(TAG, "Cannot speak empty text")
+            return false
+        }
+
+        // If already speaking, stop
+        if (_isSpeaking.value) {
+            stopSpeaking()
+        }
+
+        // Set the progress listener
+        textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                Log.d(TAG, "TTS started speaking")
+                viewModelScope.launch {
+                    _isSpeaking.value = true
+                }
+            }
+
+            override fun onDone(utteranceId: String?) {
+                Log.d(TAG, "TTS finished speaking")
+                viewModelScope.launch {
+                    _isSpeaking.value = false
+                }
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+                Log.e(TAG, "TTS error occurred")
+                viewModelScope.launch {
+                    _isSpeaking.value = false
+                }
+            }
+        })
+
+        // Speak the text - using null for params as the utteranceId is now set as the fourth parameter
+        val result = textToSpeech?.speak(
+            text,
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            "messageId"
+        )
+
+        if (result == TextToSpeech.ERROR) {
+            Log.e(TAG, "TTS error when trying to speak")
+            return false
+        }
+
+        // Set a timeout in case the listener doesn't trigger
+        viewModelScope.launch {
+            delay(text.length * 100L + 3000L) // Rough estimate of speech duration plus buffer
+            if (_isSpeaking.value) {
+                _isSpeaking.value = false
+            }
+        }
+
+        return true
+    }
+
+    fun stopSpeaking() {
+        textToSpeech?.stop()
+        _isSpeaking.value = false
+    }
 }
 
 enum class ModelInitStatus {
+    NOT_INITIALIZED,
+    INITIALIZING,
+    INITIALIZED,
+    FAILED
+}
+
+enum class TTSStatus {
     NOT_INITIALIZED,
     INITIALIZING,
     INITIALIZED,

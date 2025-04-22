@@ -2,7 +2,6 @@ package com.example.hearingmobilityapp
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -89,23 +88,9 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
     var showSavedMessagesScreen by remember { mutableStateOf(false) }
     var isFavorite by remember { mutableStateOf(false) }
     
-    // Text-to-speech state
-    var isSpeaking by remember { mutableStateOf(false) }
-    var tts: TextToSpeech? = remember { null }
-    
-    // Initialize TTS engine
-    DisposableEffect(Unit) {
-        tts = TextToSpeech(context) { status ->
-            if (status != TextToSpeech.SUCCESS) {
-                Toast.makeText(context, "Text-to-speech initialization failed", Toast.LENGTH_SHORT).show()
-            }
-        }
-        
-        onDispose {
-            tts?.stop()
-            tts?.shutdown()
-        }
-    }
+    // Get TTS state from ViewModel instead of managing locally
+    val isSpeaking by viewModel.isSpeaking.collectAsState()
+    val ttsStatus by viewModel.ttsStatus.collectAsState()
     
     // State for delete confirmation dialog
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -268,67 +253,22 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                 // Speaker button in the middle
                 IconButton(
                     onClick = {
-                        if (displayedMessage.isNotEmpty() && displayedMessage != "Message appears here" && !isSpeaking) {
-                            tts?.let { textToSpeech ->
-                                // Check if TTS is initialized properly
-                                if (textToSpeech.setLanguage(Locale.getDefault()) != TextToSpeech.LANG_MISSING_DATA && 
-                                    textToSpeech.setLanguage(Locale.getDefault()) != TextToSpeech.LANG_NOT_SUPPORTED) {
-                                    
-                                    // Set speaking state to true
-                                    isSpeaking = true
-                                    
-                                    // Stop any previous utterance
-                                    textToSpeech.stop()
-                                    
-                                    // Set up a listener for when speech completes
-                                    textToSpeech.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-                                        override fun onStart(utteranceId: String?) {
-                                            // Speech started
-                                        }
-                                        
-                                        override fun onDone(utteranceId: String?) {
-                                            // We need to update the UI on the main thread
-                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                                isSpeaking = false
-                                            }
-                                        }
-                                        
-                                        @Deprecated("Deprecated in Java")
-                                        override fun onError(utteranceId: String?) {
-                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                                isSpeaking = false
-                                                Toast.makeText(context, "Speech failed", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    })
-                                    
-                                    // Prepare speech parameters
-                                    val params = HashMap<String, String>().apply {
-                                        put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "messageId")
-                                    }
-                                    
-                                    // Speak the text
-                                    textToSpeech.speak(
-                                        displayedMessage,
-                                        TextToSpeech.QUEUE_FLUSH,
-                                        null,
-                                        "messageId"
-                                    )
-                                    
-                                    // Set a timeout in case the listener doesn't trigger
-                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                        if (isSpeaking) {
-                                            isSpeaking = false
-                                        }
-                                    }, displayedMessage.length * 100L + 3000L) // Rough estimate of speech duration plus buffer
-                                } else {
-                                    Toast.makeText(context, "Text-to-speech language not supported", Toast.LENGTH_SHORT).show()
+                        if (displayedMessage.isNotEmpty() && displayedMessage != "Message appears here") {
+                            if (isSpeaking) {
+                                // Stop speaking if already speaking
+                                viewModel.stopSpeaking()
+                            } else {
+                                // Start speaking
+                                val success = viewModel.speak(displayedMessage)
+                                if (!success) {
+                                    // Show error if speaking failed
+                                    Toast.makeText(
+                                        context,
+                                        "Unable to speak text. Please try again.",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             }
-                        } else if (isSpeaking) {
-                            // Stop speech if already speaking
-                            tts?.stop()
-                            isSpeaking = false
                         }
                     },
                     enabled = displayedMessage.isNotEmpty() && displayedMessage != "Message appears here",
@@ -353,7 +293,7 @@ fun CommunicationPage(viewModel: CommunicationViewModel = viewModel()) {
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                painter = painterResource(id = R.drawable.ic_speaker), // You'll need to add this icon
+                                painter = painterResource(id = R.drawable.ic_speaker),
                                 contentDescription = "Text to Speech",
                                 tint = if (displayedMessage.isNotEmpty() && displayedMessage != "Message appears here") {
                                     if (isSpeaking) Color.White else Color(0xFF007AFF)

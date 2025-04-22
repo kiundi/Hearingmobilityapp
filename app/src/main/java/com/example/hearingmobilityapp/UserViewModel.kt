@@ -44,12 +44,14 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
                 user?.let {
                     _currentUser.value = UserData(
                         uid = it.uid,
-                        name = it.name ?: "",
+                        name = it.name ?: "Guest User",
                         email = it.email,
                         provider = "emailPassword",
                         emergencyContacts = emptyList() // We'll need to load these separately
                     )
-                    // We should load emergency contacts here once we migrate that to SQLite too
+                    
+                    // Log the user information for debugging
+                    Log.d("UserViewModel", "User data updated - UID: ${it.uid}, Name: ${it.name}, Email: ${it.email}")
                 } ?: run {
                     _currentUser.value = null
                 }
