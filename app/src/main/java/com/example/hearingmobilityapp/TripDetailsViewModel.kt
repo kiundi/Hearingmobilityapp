@@ -305,7 +305,7 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
         // Stop any existing updates
         stopRealtimeUpdates()
         
-        // Start new updates
+        // Start new updates with more frequent intervals
         realtimeUpdateHandler = Handler(Looper.getMainLooper())
         realtimeUpdateRunnable = object : Runnable {
             override fun run() {
@@ -313,7 +313,7 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
                 // Update remaining distance and ETA with each real-time update
                 updateRemainingDistance()
                 updateRealTimeEta()
-                realtimeUpdateHandler?.postDelayed(this, 5000) // Update every 5 seconds for more responsive UI
+                realtimeUpdateHandler?.postDelayed(this, 2000) // Update every 2 seconds for more responsive UI
             }
         }
         
@@ -331,6 +331,7 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
     private fun updateRealtimeData() {
         viewModelScope.launch {
             val currentTransitRoute = _transitRoute.value ?: return@launch
+            val currentLocation = _currentLocation.value ?: return@launch
             
             // Get real-time updates for the route
             val updatedRoute = withContext(Dispatchers.IO) {
@@ -341,7 +342,13 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
             _transitRoute.value = updatedRoute
             
             // Update next stop based on current location
-            updateNextStop(_currentLocation.value)
+            updateNextStop(currentLocation)
+            
+            // Update navigation state with latest data
+            updateNavigationState(Location("").apply {
+                latitude = currentLocation.latitude
+                longitude = currentLocation.longitude
+            })
         }
     }
     
@@ -375,6 +382,7 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
         val values = android.content.ContentValues().apply {
             put("current_lat", location.latitude)
             put("current_lng", location.longitude)
+            put("last_update", System.currentTimeMillis())
         }
 
         db.update(
@@ -394,18 +402,18 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
         val timeDelta = currentTime - _lastLocationUpdateTime.value
         
         // Only process if we have a meaningful time difference (avoid division by zero)
-        if (timeDelta > 1000) { // More than 1 second
+        if (timeDelta > 500) { // More than 0.5 seconds for more frequent updates
             // Calculate distance moved since last update
             val distanceMoved = calculateDistance(previousLocation, newLocation)
             
             // Calculate current speed (meters per second)
             val speedMps = distanceMoved / (timeDelta / 1000.0f)
             
-            // Update average speed with some smoothing (70% old value, 30% new value)
+            // Update average speed with some smoothing (80% old value, 20% new value for more stability)
             if (_averageSpeed.value == 0.0f) {
                 _averageSpeed.value = speedMps
             } else {
-                _averageSpeed.value = _averageSpeed.value * 0.7f + speedMps * 0.3f
+                _averageSpeed.value = _averageSpeed.value * 0.8f + speedMps * 0.2f
             }
             
             // Update last location data
@@ -415,13 +423,13 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
             // Update remaining distance and ETA
             updateRemainingDistance()
             updateRealTimeEta()
+            
+            // Update next stop based on new location
+            updateNextStop(newLocation)
+            
+            // Update navigation state with real-time data
+            updateNavigationState(location)
         }
-        
-        // Update next stop based on new location
-        updateNextStop(newLocation)
-        
-        // Update navigation state with real-time data
-        updateNavigationState(location)
     }
 
     fun updateDistance(distance: Float) {
@@ -436,16 +444,18 @@ class TripDetailsViewModel(private val context: Context) : ViewModel() {
         val currentLocation = GeoPoint(location.latitude, location.longitude)
         val destinationLocation = _navigationState.value.destinationLocation
         val nextStop = _nextStop.value
+        val currentRoute = _currentRoute.value
+        val transitRoute = _transitRoute.value
 
         _navigationState.value = NavigationState(
             currentLocation = currentLocation,
             destinationLocation = destinationLocation,
             distance = _remainingDistance.value,
             estimatedTime = _currentEta.value,
-            status = _currentRoute.value?.status ?: "active",
+            status = currentRoute?.status ?: "active",
             nextStop = nextStop?.stopName,
-            routeName = _transitRoute.value?.tripDetails?.routeName,
-            tripHeadsign = _transitRoute.value?.tripDetails?.tripHeadsign,
+            routeName = transitRoute?.tripDetails?.routeName,
+            tripHeadsign = transitRoute?.tripDetails?.tripHeadsign,
             distanceToNextStop = nextStop?.let { calculateDistance(currentLocation, it.location) }?.toInt(),
             isWeekend = _isWeekend.value,
             weekendMessage = if (_isWeekend.value) "Weekend service in effect. Schedules may vary." else null,
